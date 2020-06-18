@@ -15,6 +15,10 @@ def conformers(args):
 	rms_list = [0.0]
 	AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 
+	with open(args.folder + "/atoms.txt", "w") as f:
+		for atom in m2.GetAtoms():
+			f.write(atom.GetSymbol() + '\n')
+
 	i = 0
 	for c in m2.GetConformers():
 		np.savetxt(args.folder + "/pos-"+str(i)+".txt", c.GetPositions())

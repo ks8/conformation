@@ -20,7 +20,7 @@ def conformers(args):
 	rms_list = [0.0]
 	AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 
-	with open(args.folder + "/atoms.txt", "w") as f:
+	with open(os.path.join(args.folder, "atoms.txt"), "w") as f:
 		for atom in m2.GetAtoms():
 			f.write(atom.GetSymbol() + '\n')
 

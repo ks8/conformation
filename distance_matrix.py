@@ -31,7 +31,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--folder', type=str, dest='folder', default=None, help='Folder path containing relevant files')
-    parser.add_argument('--out', type=str, dest='out', default=None, help='File name for plot image')
+    parser.add_argument('--out', type=str, dest='out', default=None, help='Folder name to hold distance matrix files')
     args = parser.parse_args()
 
     os.makedirs(args.out, exist_ok=False)

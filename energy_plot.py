@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+import math
 
 
 def energy_plot(args):
@@ -13,6 +14,7 @@ def energy_plot(args):
     """
     energies = []
     rms_list = []
+    dihedral_list = []
     for _, _, files in os.walk(args.folder):
         for f in files:
             if f[:10] == "energy-rms":
@@ -20,9 +22,11 @@ def energy_plot(args):
                 contents = file.readlines()
                 energy = float(contents[0].split()[1])
                 rms = float(contents[1].split()[1])
+                dihedral = float(contents[2].split()[1])
                 if args.lower_energy_bound < energy < args.upper_energy_bound:
                     energies.append(energy)
                     rms_list.append(rms)
+                    dihedral_list.append(dihedral*(180.0/math.pi))
 
     plt.hist(energies, bins=args.num_energy_bins)
     plt.title("Ethane ETKDG Energies")
@@ -37,6 +41,20 @@ def energy_plot(args):
     plt.xlabel("Distance ($\AA$)")
     plt.savefig(args.out + "-rms.png")
 
+    plt.clf()
+    plt.hist(dihedral_list, bins=args.num_rms_bins)
+    plt.title("Ethane Dihedral Values")
+    plt.ylabel("Frequency")
+    plt.xlabel("Angle (Degrees)")
+    plt.savefig(args.out + "-dihedral.png")
+
+    plt.clf()
+    plt.plot(dihedral_list, energies, 'bo')
+    plt.title("Ethane Energy vs Dihedral")
+    plt.ylabel("Energy (kcal/mol)")
+    plt.xlabel("Dihedral Angle (Degrees)")
+    plt.savefig(args.out + "-energy-vs-dihedral.png")
+
 
 def main():
     """
@@ -44,9 +62,11 @@ def main():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--folder', type=str, dest='folder', default=None, help='Folder path containing relevant files')
-    parser.add_argument('--num_energy_bins', type=int, dest='num_energy_bins', default=50,
+    parser.add_argument('--num_energy_bins', type=int, dest='num_energy_bins', default=40,
                         help='# energy histogram bins')
-    parser.add_argument('--num_rms_bins', type=int, dest='num_rms_bins', default=50, help='# rms histogram bins')
+    parser.add_argument('--num_rms_bins', type=int, dest='num_rms_bins', default=20, help='# rms histogram bins')
+    parser.add_argument('--num_dihedral_bins', type=int, dest='num_dihedral_bins', default=20,
+                        help='# dihedral histogram bins')
     parser.add_argument('--out', type=str, dest='out', default=None, help='File name for plot image')
     parser.add_argument('--upper_energy_bound', type=float, dest='upper_energy_bound', default=5.0,
                         help='Upper bound for molecule energy')

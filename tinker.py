@@ -10,27 +10,27 @@ def tinker_md(args):
     """
     for _, _, files in os.walk(args.folder):
         for f in files:
-            print(f.find("."))
-            os.system("obabel --gen3D -ismi " + os.path.join(args.folder, f) + " -osdf " + "-O " +
-                      os.path.join(args.out, f[:f.find(".") + 1] + "sdf"))
-            tmp = open(os.path.join(args.out, f[:f.find(".") + 1] + "sdf"), "r")
+            sdf_name = os.path.join(args.out, f[:f.find(".") + 1] + "sdf")
+            xyz_name = os.path.join(args.out, f[:f.find(".") + 1] + "xyz")
+            key_name = os.path.join(args.out, f[:f.find(".") + 1] + "key")
+            os.system("obabel --gen3D -ismi " + os.path.join(args.folder, f) + " -osdf " + "-O " + sdf_name)
+            tmp = open(sdf_name, "r")
             contents = tmp.readlines()
             contents[0] = f[:f.find(".")] + "\n"
             tmp.close()
-            tmp = open(os.path.join(args.out, f[:f.find(".") + 1] + "sdf"), "w")
+            tmp = open(sdf_name, "w")
             for i in range(len(contents)):
                 tmp.write(contents[i])
             tmp.close()
-            os.system("sdf2tinkerxyz < " + os.path.join(args.out, f[:f.find(".") + 1] + "sdf"))
-            tmp = open(os.path.join(args.out, f[:f.find(".") + 1] + "key"), "w")
+            os.system("sdf2tinkerxyz < " + sdf_name)
+            tmp = open(key_name, "w")
             tmp.write("parameters    " + args.param_path + "\n")
-            tmp.write("integrator    " + args.integrator+ "\n")
+            tmp.write("integrator    " + args.integrator + "\n")
             tmp.write("archive" + "\n")
             tmp.close()
             os.system("mv " + f[:f.find(".") + 1] + "xyz " + args.out)
             os.system("rm " + f[:f.find(".") + 1] + "key ")
-            os.system("dynamic " + os.path.join(args.out, f[:f.find(".") + 1] + "xyz") + " -k " +
-                      os.path.join(args.out, f[:f.find(".") + 1] + "key") + " " + str(args.num_steps) + " " +
+            os.system("dynamic " + xyz_name + " -k " + key_name + " " + str(args.num_steps) + " " +
                       str(args.time_step) + " " + str(args.save_step) + " " + str(args.ensemble) + " " + str(args.temp))
 
 

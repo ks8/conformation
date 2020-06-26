@@ -12,101 +12,126 @@ import scipy.spatial
 
 def tinker_md(args):
     """
-    Generate MD simulation for molecules from SMILES string input
+    Generate MD simulation and conformations for molecules from SMILES string input
     :param args: Argparse arguments
     :return: None
     """
     for _, _, files in os.walk(args.input):
         for f in files:
+            # Set molecule, file, and smiles variables
             molecule_name = f[:f.find(".")]
             sdf_name = os.path.join(args.out, molecule_name + "." + "sdf")
-            xyz_name = os.path.join(args.out, molecule_name + "." + "xyz")
             key_name = os.path.join(args.out, molecule_name + "." + "key")
             with open(os.path.join(args.input, f)) as tmp:
                 smiles = tmp.readlines()[0].split()[0]
-            # os.system("obabel --gen3D -ismi " + os.path.join(args.input, f) + " -osdf " + "-O " + sdf_name)
+
+            # Initialize conformation counter
             counter = 0
 
-            for j in range(args.num_starts):
-                # m = Chem.MolFromSmiles(smiles)
-                # m2 = Chem.AddHs(m)
-                # _ = AllChem.EmbedMolecule(m2)
-                # Chem.rdForceFieldHelpers.MMFFOptimizeMolecule(m2)
-
-                m = Chem.MolFromSmiles(args.smiles)
-                m2 = Chem.AddHs(m)
-                _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_configs)
-                res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=args.max_iter)
-
-                print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name + ".pdb", "w+"))
-                os.system("obabel -ipdb " + molecule_name + ".pdb" + " -osdf -O " + sdf_name)
-
-                exit()
-
-                with open(sdf_name, "r") as tmp:
-                    contents = tmp.readlines()
-                    contents[0] = molecule_name + "\n"
-                with open(sdf_name, "w") as tmp:
-                    for i in range(len(contents)):
-                        tmp.write(contents[i])
-                os.system("rm " + molecule_name + "." + "pdb ")
-                os.system("sdf2tinkerxyz < " + sdf_name)
-                with open(key_name, "w") as tmp:
-                    tmp.write("parameters    " + args.param_path + "\n")
-                    tmp.write("integrator    " + args.integrator + "\n")
-                    tmp.write("archive" + "\n")
-                os.system("mv " + molecule_name + "." + "xyz " + args.out)
-                os.system("rm " + molecule_name + "." + "key ")
-                os.system("dynamic " + xyz_name + " -k " + key_name + " " + str(args.num_steps) + " " +
-                          str(args.time_step) + " " + str(args.save_step) + " " + str(args.ensemble) + " " +
-                          str(args.temp))
-
+            # Generate initial MMFF-minimized RDKit conformations from which to start MD simulations
             m = Chem.MolFromSmiles(smiles)
             m2 = Chem.AddHs(m)
-            _ = AllChem.EmbedMultipleConfs(m2, numConfs=1)
-            c = m2.GetConformers()[0]
-            with open(os.path.join(args.out, molecule_name + ".arc"), "r") as tmp:
-                line = tmp.readline()
-                print(line)
-                pos = []
-                while line:
-                    if line.split()[1] == molecule_name:
-                        if counter > 0:
-                            pos = np.array(pos)
-                            np.savetxt(os.path.join(args.out, "pos", "pos-" + str(counter - 1) + "-" + molecule_name +
-                                                    ".txt"), pos)
-                            num_atoms = pos.shape[0]
-                            dist_mat = np.zeros([num_atoms, num_atoms])
-                            for i in range(num_atoms):
-                                for j in range(1, num_atoms):
-                                    if j > i:
-                                        dist_mat[i][j] = scipy.spatial.distance.euclidean(pos[i], pos[j])
-                                        dist_mat[j][i] = dist_mat[i][j]
-                            np.savetxt(os.path.join(args.out, "distmat", "distmat-" + str(counter - 1) + "-" +
-                                                    molecule_name + ".txt"), dist_mat)
+            _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_starts)
+            _ = AllChem.MMFFOptimizeMoleculeConfs(m2,)
+            print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
 
-                            for i in range(len(pos)):
-                                c.SetAtomPosition(i, Point3D(pos[i][0], pos[i][1], pos[i][2]))
-                            if args.dihedral:
-                                dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
-                                                                               args.dihedral_vals[1],
-                                                                               args.dihedral_vals[2],
-                                                                               args.dihedral_vals[3])
-                            else:
-                                dihedral = "nan"
-                            res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=0)
-                            with open(os.path.join(args.out, "properties", "energy-rms-dihedral" + str(counter - 1) +
-                                                                           "-" + molecule_name + ".txt"), "w") as o:
-                                o.write("energy: " + str(res[0][1]))
-                                o.write('\n')
-                                o.write("rms: " + "nan")
-                                o.write('\n')
-                                o.write("dihedral: " + str(dihedral))
-                        pos = []
-                        counter += 1
-                    else:
-                        pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
+            # Convert PDB file to SDF file and remove PDB file
+            os.system("obabel -ipdb " + molecule_name + " -osdf -O " + sdf_name)
+            os.system("rm " + molecule_name)
+
+            # Convert SDF file to multiple Tinker xyz input files
+            os.system("sdf2tinkerxyz < " + sdf_name)
+
+            # Label the first xyz file to match the other numbered labels (i.e., ethane.xyz -> ethane_1.xyz)
+            os.system("mv " + molecule_name + "." + "xyz " + molecule_name + "_" +
+                      ("{:0" + str(len(str(args.num_starts))) + "d}").format(1) + "." + "xyz ")
+            os.system("mv " + molecule_name + "." + "key " + molecule_name + "_" +
+                      ("{:0" + str(len(str(args.num_starts))) + "d}").format(1) + "." + "key ")
+
+            # Write the key file, specifying MD simulation parameters
+            with open(key_name, "w") as tmp:
+                tmp.write("parameters    " + args.param_path + "\n")
+                tmp.write("integrator    " + args.integrator + "\n")
+                tmp.write("archive" + "\n")
+
+            # Move the xyz files to the args.out folder
+            os.system("mv " + molecule_name + "*." + "xyz " + args.out)
+
+            # Remove extraneous key files
+            os.system("rm " + molecule_name + "*." + "key ")
+
+            # Run MD simulations and conformation extraction for each RDKit initial configuration
+            for j in range(args.num_starts):
+                # Run the MD simulation
+                os.system("dynamic " + os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts
+                                                                                                         ))) + "d}").
+                                                    format(j + 1) + ".xyz") + " -k " + key_name + " " +
+                          str(args.num_steps) + " " + str(args.time_step) + " " + str(args.save_step) + " " +
+                          str(args.ensemble) + " " + str(args.temp))
+
+                # Create a random conformation object, used for computing properties such as energy, dihedral angle
+                m = Chem.MolFromSmiles(smiles)
+                m2 = Chem.AddHs(m)
+                _ = AllChem.EmbedMultipleConfs(m2, numConfs=1)
+                c = m2.GetConformers()[0]
+
+                # Open the trajectory (.arc) file and process the conformations
+                with open(os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts))) +
+                                                                        "d}").format(j + 1) + ".arc"), "r") as tmp:
                     line = tmp.readline()
+                    pos = []
+                    while line:
+                        # If we have finished extracting coordinates for one conformation, process the conformation
+                        if line.split()[1] == molecule_name:
+                            if counter > 0:
+                                # Save the atomic positions to a text file in the "pos" folder
+                                pos = np.array(pos)
+                                np.savetxt(os.path.join(args.out, "pos", "pos-" + str(counter - 1) + "-" +
+                                                        molecule_name + ".txt"), pos)
+
+                                # Compute pairwise distance matrix and save to a text file in the "distmat" folder
+                                num_atoms = pos.shape[0]
+                                dist_mat = np.zeros([num_atoms, num_atoms])
+                                for i in range(num_atoms):
+                                    for j in range(1, num_atoms):
+                                        if j > i:
+                                            dist_mat[i][j] = scipy.spatial.distance.euclidean(pos[i], pos[j])
+                                            dist_mat[j][i] = dist_mat[i][j]
+                                np.savetxt(os.path.join(args.out, "distmat", "distmat-" + str(counter - 1) + "-" +
+                                                        molecule_name + ".txt"), dist_mat)
+
+                                # Save atomic coordinates to the conformation object
+                                for i in range(len(pos)):
+                                    c.SetAtomPosition(i, Point3D(pos[i][0], pos[i][1], pos[i][2]))
+
+                                # Compute the specified dihedral angle
+                                if args.dihedral:
+                                    dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
+                                                                                   args.dihedral_vals[1],
+                                                                                   args.dihedral_vals[2],
+                                                                                   args.dihedral_vals[3])
+                                else:
+                                    dihedral = "nan"
+
+                                # Compute the potential energy of the conformation
+                                res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=0)
+
+                                # Write property information to a text file in the "properties" folder
+                                with open(os.path.join(args.out, "properties", "energy-rms-dihedral-" +
+                                                                               str(counter - 1) + "-" + molecule_name +
+                                                                               ".txt"), "w") as o:
+                                    o.write("energy: " + str(res[0][1]))
+                                    o.write('\n')
+                                    o.write("rms: " + "nan")
+                                    o.write('\n')
+                                    o.write("dihedral: " + str(dihedral))
+                            pos = []
+                            counter += 1
+
+                        # Continue extracting coordinates for a single conformation
+                        else:
+                            pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
+                        line = tmp.readline()
 
 
 def main():

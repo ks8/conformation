@@ -15,10 +15,10 @@ def energy_plot(args):
     energies = []
     rms_list = []
     dihedral_list = []
-    for _, _, files in os.walk(args.folder):
+    for _, _, files in os.walk(args.input):
         for f in files:
             if f[:10] == "energy-rms":
-                file = open(os.path.join(args.folder, f))
+                file = open(os.path.join(args.input, f))
                 contents = file.readlines()
                 energy = float(contents[0].split()[1])
                 rms = float(contents[1].split()[1])
@@ -66,7 +66,7 @@ def main():
     Parse arguments and execute file processing
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', type=str, dest='folder', default=None, help='Folder path containing relevant files')
+    parser.add_argument('--input', type=str, dest='input', default=None, help='Folder path containing input files')
     parser.add_argument('--num_energy_bins', type=int, dest='num_energy_bins', default=40,
                         help='# energy histogram bins')
     parser.add_argument('--num_rms_bins', type=int, dest='num_rms_bins', default=20, help='# rms histogram bins')

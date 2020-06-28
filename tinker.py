@@ -8,7 +8,7 @@ from rdkit.Chem import AllChem
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
 # import scipy.spatial
-from distance import dist_matrix
+from distance_matrix import dist_matrix
 
 
 def tinker_md(args):

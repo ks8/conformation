@@ -7,7 +7,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
-import scipy.spatial
+# import scipy.spatial
+from distance import dist_matrix
 
 
 def tinker_md(args):
@@ -92,15 +93,8 @@ def tinker_md(args):
                                                         molecule_name + ".txt"), pos)
 
                                 # Compute pairwise distance matrix and save to a text file in the "distmat" folder
-                                num_atoms = pos.shape[0]
-                                dist_mat = np.zeros([num_atoms, num_atoms])
-                                for i in range(num_atoms):
-                                    for j in range(1, num_atoms):
-                                        if j > i:
-                                            dist_mat[i][j] = scipy.spatial.distance.euclidean(pos[i], pos[j])
-                                            dist_mat[j][i] = dist_mat[i][j]
-                                np.savetxt(os.path.join(args.out, "distmat", "distmat-" + str(counter - 1) + "-" +
-                                                        molecule_name + ".txt"), dist_mat)
+                                dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter - 1) + "-"
+                                                              + molecule_name + ".txt"))
 
                                 # Save atomic coordinates to the conformation object
                                 for i in range(len(pos)):

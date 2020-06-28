@@ -5,6 +5,7 @@ from rdkit.Chem import AllChem
 import numpy as np
 import argparse
 import os
+from distance import dist_matrix
 
 
 def conformers(args):
@@ -20,14 +21,16 @@ def conformers(args):
     rms_list = [0.0]
     AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 
-    with open(os.path.join(args.folder, "atoms.txt"), "w") as f:
+    with open(os.path.join(args.out, "pos", "atoms.txt"), "w") as f:
         for atom in m2.GetAtoms():
             f.write(atom.GetSymbol() + '\n')
 
     i = 0
     for c in m2.GetConformers():
-        np.savetxt(os.path.join(args.folder, "pos-" + str(i) + ".txt"), c.GetPositions())
-        with open(os.path.join(args.folder, "energy-rms-" + str(i) + ".txt"), "w") as f:
+        pos = c.GetPositions()
+        np.savetxt(os.path.join(args.out, "pos", "pos-" + str(i) + ".txt"), pos)
+        dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(i) + ".txt"))
+        with open(os.path.join(args.out, "properties", "energy-rms-" + str(i) + ".txt"), "w") as f:
             f.write("energy: " + str(res[i][1]))
             f.write('\n')
             f.write("rms: " + str(rms_list[i]))
@@ -46,14 +49,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--smiles', type=str, dest='smiles', default=None, help='Molecule SMILES string')
     parser.add_argument('--num_configs', type=int, dest='num_configs', default=None, help='Number of conformations')
-    parser.add_argument('--folder', type=str, dest='folder', default=None, help='Folder name for saving conformations')
+    parser.add_argument('--out', type=str, dest='out', default=None, help='Folder name for saving conformations')
     parser.add_argument('--max_iter', type=int, dest='max_iter', default=200, help='Max iter for MMFF optimization')
     parser.add_argument('--dihedral', type=int, dest='dihedral', nargs='+', default=[2, 0, 1, 5],
                         help='Atom IDs for dihedral')
 
     args = parser.parse_args()
 
-    os.makedirs(args.folder, exist_ok=False)
+    os.makedirs(args.out, exist_ok=False)
+    os.makedirs(os.path.join(args.out, "pos"), exist_ok=False)
+    os.makedirs(os.path.join(args.out, "properties"), exist_ok=False)
+    os.makedirs(os.path.join(args.out, "distmat"), exist_ok=False)
     conformers(args)
 
 

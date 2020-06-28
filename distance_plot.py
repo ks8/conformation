@@ -14,9 +14,9 @@ def distance_plot(args):
     """
     num_atoms = None
     distances = []
-    for _, _, files in os.walk(args.folder):
+    for _, _, files in os.walk(args.input):
         for f in files:
-            dist = np.loadtxt(os.path.join(args.folder, f))
+            dist = np.loadtxt(os.path.join(args.input, f))
             num_atoms = dist.shape[0]
             distance = []
             for i in range(num_atoms):
@@ -46,7 +46,7 @@ def main():
     Parse arguments and execute file processing
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', type=str, dest='folder', default=None, help='Folder path containing relevant files')
+    parser.add_argument('--input', type=str, dest='input', default=None, help='Folder path containing relevant files')
     parser.add_argument('--num_bins', type=int, dest='num_bins', default=50,
                         help='# histogram bins')
     parser.add_argument('--out', type=str, dest='out', default=None, help='File name for plot image')

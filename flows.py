@@ -8,14 +8,14 @@ class AffineTransform(nn.Module):
     """
 
     def __init__(self):
-        super().__init__()
+        super(AffineTransform, self).__init__()
         self.loc = nn.Parameter(torch.randn(1, 2, requires_grad=True))  # Two parameters for shifting
         self.scale = nn.Parameter(torch.randn(1, 2, requires_grad=True))  # Two parameters for scaling
 
     def forward(self, x):
         return self.loc + self.scale * x
 
-    def _inverse(self, y):
+    def inverse(self, y):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, y):
@@ -51,13 +51,13 @@ class RealNVP(nn.Module):
         x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
         return x
 
-    def _inverse(self, x):
+    def inverse(self, x):
         """
 
         :param x:
         :return:
         """
-        log_det_J, z = x.new_zeros(x.shape[0]), x
+        log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
         s = self.s(z_) * (1 - self.mask)
         t = self.t(z_) * (1 - self.mask)
@@ -70,11 +70,11 @@ class RealNVP(nn.Module):
         :param x:
         :return:
         """
-        log_det_J, z = x.new_zeros(x.shape[0]), x
+        log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
         s = self.s(z_) * (1 - self.mask)
-        log_det_J += s.sum(dim=1)
-        return log_det_J
+        log_det_j += s.sum(dim=1)
+        return log_det_j
 
 
 class NormalizingFlowModel(nn.Module):
@@ -84,7 +84,7 @@ class NormalizingFlowModel(nn.Module):
     """
 
     def __init__(self, base_dist, biject):
-        super().__init__()
+        super(NormalizingFlowModel, self).__init__()
         self.biject = biject  # List of transformations, each of which is nn.Module
         self.base_dist = base_dist  # Base distribution
         self.bijectors = nn.ModuleList(self.biject)
@@ -94,7 +94,7 @@ class NormalizingFlowModel(nn.Module):
         self.log_det = []  # Accumulate the log abs det jacobians of the transformations
         for b in range(len(self.bijectors) - 1, -1, -1):
             self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
-            x = self.bijectors[b]._inverse(x)
+            x = self.bijectors[b].inverse(x)
         return x, self.log_det
 
     def sample(self, sample_layers):

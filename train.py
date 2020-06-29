@@ -1,44 +1,41 @@
-# File for stuff
-import numpy as np
-from utils import loss
-import os
-import torch
+from utils import loss_func
+# noinspection PyUnresolvedReferences
+from tqdm import tqdm
 
 
-def train(model, optimizer, batch_size, num_epochs, num_batch_iterations, input_folder):
+def train(model, optimizer, data, args, n_iter):
     """
     Function for training a normalizing flow model.
+    :param n_iter: Number of training iterations completed so far
     :param model: nn.Module neural network
     :param optimizer: PyTorch optimizer
-    :param batch_size: Batch size
-    :param num_epochs: Number of training epochs
-    :param num_batch_iterations:
-    :param input_folder:
+    :param data: DataLoader
+    :param args: System args
     :return:
     """
     model.train()
 
-    for _ in range(num_epochs):
-        loss_sum = 0
-        for t in range(num_batch_iterations):
-            model.zero_grad()
-            x_samples = [[] for _ in range(batch_size)]
-            for i, j in enumerate(np.random.randint(0, 9990, batch_size)):
-                distmat = np.loadtxt(os.path.join(input_folder, "distmat-" + str(j) + "-ethane.txt"))
-                num_atoms = distmat.shape[0]
-                for m in range(num_atoms):
-                    for n in range(1, num_atoms):
-                        if n > m:
-                            x_samples[i].append(distmat[m][n])
-            x_samples = torch.from_numpy(np.array(x_samples))
-            x_samples = x_samples.type(torch.float32)
-            x_samples = x_samples.cuda()
-            z, log_jacobians = model(x_samples)
-            test = loss(z, log_jacobians, model.base_dist)
-            loss_sum += test.item()
+    total_loss = 0
+    loss_sum, iter_count = 0, 0
+    for batch in tqdm(data, total=len(data)):
+        if args.cuda:
+            batch = batch.cuda()
+        model.zero_grad()
+        z, log_jacobians = model(batch)
+        loss = loss_func(z, log_jacobians, model.base_dist)
+        loss_sum += loss.item()
+        total_loss += loss_sum
+        iter_count += len(batch)
+        n_iter += len(batch)
 
-            test.backward()
-            optimizer.step()
+        loss.backward()
+        optimizer.step()
 
-            print('iter %s:' % t, 'loss = %.3f' % test)
+        if (n_iter // args.batch_size) % args.log_frequency == 0:
+            loss_avg = loss_sum / iter_count
+            loss_sum, iter_count = 0, 0
+            print("Loss avg = {:.4e}".format(loss_avg))
 
+    print("Total loss = {:.4e}".format(total_loss))
+
+    return n_iter, total_loss

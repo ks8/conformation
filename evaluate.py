@@ -24,9 +24,6 @@ def evaluate(model, num_test_samples, sample_layers):
                     if n > m:
                         indices.append((m, n))
             for i in range(len(sample)):
-                distmat[indices[i][0], indices[i][1]] = sample[i].item()/10.0
+                distmat[indices[i][0], indices[i][1]] = sample[i].item()
                 distmat[indices[i][1], indices[i][0]] = distmat[indices[i][0], indices[i][1]]
             np.savetxt(os.path.join("nn-test", "distmat", "distmat-" + str(j) + ".txt"), distmat)
-
-
-

@@ -80,20 +80,21 @@ def tinker_md(args):
 
                 # Open the trajectory (.arc) file and process the conformations
                 with open(os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts))) +
-                                                                        "d}").format(j + 1) + ".arc"), "r") as tmp:
+                                                                        "d}").format(j + 1) + ".arc")) as tmp:
                     line = tmp.readline()
                     pos = []
+                    new_file = True
                     while line:
                         # If we have finished extracting coordinates for one conformation, process the conformation
                         if line.split()[1] == molecule_name:
-                            if counter > 0:
+                            if not new_file:
                                 # Save the atomic positions to a text file in the "pos" folder
                                 pos = np.array(pos)
-                                np.savetxt(os.path.join(args.out, "pos", "pos-" + str(counter - 1) + "-" +
+                                np.savetxt(os.path.join(args.out, "pos", "pos-" + str(counter) + "-" +
                                                         molecule_name + ".txt"), pos)
 
                                 # Compute pairwise distance matrix and save to a text file in the "distmat" folder
-                                dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter - 1) + "-"
+                                dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter) + "-"
                                                               + molecule_name + ".txt"))
 
                                 # Save atomic coordinates to the conformation object
@@ -114,18 +115,20 @@ def tinker_md(args):
 
                                 # Write property information to a text file in the "properties" folder
                                 with open(os.path.join(args.out, "properties", "energy-rms-dihedral-" +
-                                                                               str(counter - 1) + "-" + molecule_name +
+                                                                               str(counter) + "-" + molecule_name +
                                                                                ".txt"), "w") as o:
                                     o.write("energy: " + str(res[0][1]))
                                     o.write('\n')
                                     o.write("rms: " + "nan")
                                     o.write('\n')
                                     o.write("dihedral: " + str(dihedral))
-                            pos = []
-                            counter += 1
+
+                                pos = []
+                                counter += 1
 
                         # Continue extracting coordinates for a single conformation
                         else:
+                            new_file = False
                             pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
                         line = tmp.readline()
 
@@ -159,10 +162,10 @@ def main():
     parser.add_argument('--num_threads', type=int, dest='num_threads', default=1, help='Number of CPU cores to use')
     args = parser.parse_args()
 
-    os.makedirs(args.out, exist_ok=False)
-    os.makedirs(os.path.join(args.out, "pos"), exist_ok=False)
-    os.makedirs(os.path.join(args.out, "properties"), exist_ok=False)
-    os.makedirs(os.path.join(args.out, "distmat"), exist_ok=False)
+    os.makedirs(args.out)
+    os.makedirs(os.path.join(args.out, "pos"))
+    os.makedirs(os.path.join(args.out, "properties"))
+    os.makedirs(os.path.join(args.out, "distmat"))
     tinker_md(args)
 
 

@@ -1,17 +1,18 @@
-from utils import loss_func
+from conformation.utils import loss_func
 # noinspection PyUnresolvedReferences
 from tqdm import tqdm
+import torch.nn as nn
 
 
-def train(model, optimizer, data, args, n_iter):
+def train(model: nn.Module, optimizer, data, args, n_iter):
     """
     Function for training a normalizing flow model.
-    :param n_iter: Number of training iterations completed so far
-    :param model: nn.Module neural network
-    :param optimizer: PyTorch optimizer
-    :param data: DataLoader
-    :param args: System args
-    :return:
+    :param n_iter: Number of training iterations completed so far.
+    :param model: nn.Module neural network.
+    :param optimizer: PyTorch optimizer.
+    :param data: DataLoader.
+    :param args: System args.
+    :return: Total number of iterations completed.
     """
     model.train()
 

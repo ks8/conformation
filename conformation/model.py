@@ -3,16 +3,16 @@ import torch
 # noinspection PyUnresolvedReferences
 from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
-from flows import RealNVP
-from flows import NormalizingFlowModel
+from conformation.flows import RealNVP
+from conformation.flows import NormalizingFlowModel
 
 
 def nets(input_dim, hidden_size):
     """
-    RealNVP neural network definition
-    :param input_dim: Data input dimension
-    :param hidden_size: Neural network hidden size
-    :return: nn.Sequential neural network
+    RealNVP "s" neural network definition.
+    :param input_dim: Data input dimension.
+    :param hidden_size: Neural network hidden size.
+    :return: nn.Sequential neural network.
     """
     return nn.Sequential(nn.Linear(input_dim, hidden_size), nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size),
                          nn.LeakyReLU(), nn.Linear(hidden_size, input_dim), nn.Tanh())
@@ -20,10 +20,10 @@ def nets(input_dim, hidden_size):
 
 def nett(input_dim, hidden_size):
     """
-    RealNVP neural network definition
-    :param input_dim: Data input dimension
-    :param hidden_size: Neural network hidden size
-    :return: nn.Sequential neural network
+    RealNVP "t" neural network definition.
+    :param input_dim: Data input dimension.
+    :param hidden_size: Neural network hidden size.
+    :return: nn.Sequential neural network.
     """
     return nn.Sequential(nn.Linear(input_dim, hidden_size), nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size),
                          nn.LeakyReLU(), nn.Linear(hidden_size, input_dim))
@@ -31,17 +31,20 @@ def nett(input_dim, hidden_size):
 
 def build_model(args):
     """
-    Function to build a RealNVP normalizing flow
-    :param args: Network parameters
-    :return: nn.Module defining the normalizing flow
+    Function to build a RealNVP normalizing flow.
+    :param args: System parameters.
+    :return: nn.Module defining the normalizing flow.
     """
     cuda = torch.cuda.is_available()
     if cuda:
         device = torch.device(0)
     else:
         device = torch.device('cpu')
+
+    # Define the base distribution
     base_dist = MultivariateNormal(torch.zeros(args.input_dim, device=device), torch.eye(args.input_dim, device=device))
 
+    # Form the network layers
     biject = []
     for i in range(args.num_layers):
         if i % 2 == 0:

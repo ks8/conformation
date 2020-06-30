@@ -1,0 +1,8 @@
+name: conformation
+
+channels:
+  - pytorch
+  - rdkit
+
+dependencies:
+  - pytorch>=1.5.0

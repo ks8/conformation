@@ -2,36 +2,18 @@ import torch
 import torch.nn as nn
 
 
-class AffineTransform(nn.Module):
-    """
-    Performs a 2D affine transformation.
-    """
-
-    def __init__(self):
-        super(AffineTransform, self).__init__()
-        self.loc = nn.Parameter(torch.randn(1, 2, requires_grad=True))  # Two parameters for shifting
-        self.scale = nn.Parameter(torch.randn(1, 2, requires_grad=True))  # Two parameters for scaling
-
-    def forward(self, x):
-        return self.loc + self.scale * x
-
-    def inverse(self, y):
-        return (y - self.loc) / self.scale
-
-    def log_abs_det_jacobian(self, y):
-        x = self._inverse(y)
-        shape = x.shape
-        scale = self.scale
-        result = torch.abs(scale).log()  # dy/dx = scale for a given coordinate
-        return torch.sum(result.expand(shape), axis=1)
-
-
 class RealNVP(nn.Module):
     """
     Performs a single layer of the RealNVP flow.
     """
 
     def __init__(self, nets, nett, mask, prior):
+        """
+        :param nets: "s" neural network definition.
+        :param nett: "t" neural network definition.
+        :param mask: Mask identifying which components of the vector will be processed together in any given layer.
+        :param prior: Base distribution.
+        """
         super(RealNVP, self).__init__()
         self.prior = prior
         self.mask = nn.Parameter(mask, requires_grad=False)
@@ -40,9 +22,9 @@ class RealNVP(nn.Module):
 
     def forward(self, z):
         """
-
-        :param z:
-        :return:
+        Transform a sample from the base distribution or previous layer.
+        :param z: Sample from the base distribution or previous layer.
+        :return: Processed sample (in the direction towards the target distribution).
         """
         x = z
         x_ = x * self.mask
@@ -53,9 +35,9 @@ class RealNVP(nn.Module):
 
     def inverse(self, x):
         """
-
-        :param x:
-        :return:
+        Compute the inverse of a target sample or a sample from the next layer.
+        :param x: Sample from the target distribution or the next layer.
+        :return: Inverse sample (in the direction towards the base distribution).
         """
         log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
@@ -66,9 +48,10 @@ class RealNVP(nn.Module):
 
     def log_abs_det_jacobian(self, x):
         """
-
-        :param x:
-        :return:
+        Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
+        direction.
+        :param x: Sample.
+        :return: log abs det jacobian.
         """
         log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
@@ -84,6 +67,10 @@ class NormalizingFlowModel(nn.Module):
     """
 
     def __init__(self, base_dist, biject):
+        """
+        :param base_dist: Base distribution
+        :param biject: List of flow layers
+        """
         super(NormalizingFlowModel, self).__init__()
         self.biject = biject  # List of transformations, each of which is nn.Module
         self.base_dist = base_dist  # Base distribution
@@ -91,6 +78,11 @@ class NormalizingFlowModel(nn.Module):
         self.log_det = []
 
     def forward(self, x):
+        """
+        Compute the inverse of a target distribution sample as well as the log abs det jacobians of the transformations
+        :param x: Target sample
+        :return: Inverse, log abs det jacobians
+        """
         self.log_det = []  # Accumulate the log abs det jacobians of the transformations
         for b in range(len(self.bijectors) - 1, -1, -1):
             self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
@@ -98,6 +90,11 @@ class NormalizingFlowModel(nn.Module):
         return x, self.log_det
 
     def sample(self, sample_layers):
+        """
+        Produce samples by processing a sample from the base distribution through the normalizing flow.
+        :param sample_layers: Number of layers to use for sampling
+        :return: Sample from the approximate target distribution.
+        """
         x = self.base_dist.sample()
         for b in range(sample_layers):
             x = self.bijectors[b](x)  # Process a sample through the flow

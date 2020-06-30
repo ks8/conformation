@@ -5,11 +5,13 @@ from torch.utils.data import Dataset
 
 
 class MolDataset(Dataset):
+    """
+    Dataset class for loading atomic pairwise distance information for molecules.
+    """
 
     def __init__(self, metadata):
         """
-        Custom dataset for pairwise distance info
-        :param metadata: Metadata contents
+        :param metadata: Metadata JSON file.
         """
         super(Dataset, self).__init__()
         self.metadata = metadata
@@ -24,9 +26,7 @@ class MolDataset(Dataset):
         for m in range(num_atoms):
             for n in range(1, num_atoms):
                 if n > m:
-                    if m == 3 and n == 7 or m == 0 and n == 1 or m == 0 and n == 2 or m == 2 and n == 5 or m == 0 and \
-                            n == 3 or m == 2 and n == 6:
-                        data.append(distmat[m][n])
+                    data.append(distmat[m][n])
         data = torch.from_numpy(np.array(data))
         data = data.type(torch.float32)
 

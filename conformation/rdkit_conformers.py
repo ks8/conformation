@@ -5,7 +5,7 @@ from rdkit.Chem import AllChem
 import numpy as np
 import argparse
 import os
-from distance_matrix import dist_matrix
+from conformation.distance_matrix import dist_matrix
 
 
 def conformers(args):

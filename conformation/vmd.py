@@ -1,8 +1,9 @@
 import argparse
+from argparse import Namespace
 import os
 
 
-def vmd(args):
+def vmd(args: Namespace) -> None:
     """
     Create files suitable for VMD input
     :param args: Argparse arguments
@@ -34,7 +35,7 @@ def main():
     parser.add_argument('--out', type=str, dest='out', default=None, help='Name of output folder')
     args = parser.parse_args()
 
-    os.makedirs(args.out, exist_ok=False)
+    os.makedirs(args.out)
     vmd(args)
 
 

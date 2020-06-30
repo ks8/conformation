@@ -1,16 +1,18 @@
+""" Plot distributions of conformation properties. """
 import argparse
+from argparse import Namespace
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import os
 import math
+import os
 
 
-def energy_plot(args):
+def energy_plot(args: Namespace) -> None:
     """
-    Plot histograms of energies and RMS for molecular conformations
-    :param args: Argparse arguments
-    :return: None
+    Plot histograms of energies, RMS, dihedrals for molecular conformations.
+    :param args: Argparse arguments.
+    :return: None.
     """
     energies = []
     rms_list = []

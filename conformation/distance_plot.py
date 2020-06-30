@@ -1,16 +1,18 @@
+""" Plot distributions of atomic pairwise distances. """
 import argparse
+from argparse import Namespace
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import os
 import numpy as np
+import os
 
 
-def distance_plot(args):
+def distance_plot(args: Namespace):
     """
-    Plot histograms of pairwise distances for a set of molecular conformations
-    :param args: Argparse arguments
-    :return: None
+    Plot histograms of pairwise distances for a set of molecular conformations.
+    :param args: Argparse arguments.
+    :return: None.
     """
     num_atoms = None
     distances = []

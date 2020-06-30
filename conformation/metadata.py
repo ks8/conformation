@@ -1,9 +1,11 @@
+""" Generate metadata. """
+import argparse
+from argparse import Namespace
 import json
 import os
-import argparse
 
 
-def process_metadata(args):
+def process_metadata(args: Namespace) -> None:
     """
     Create metadata folder and file.
     :param args: Folder name info

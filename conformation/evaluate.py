@@ -1,9 +1,14 @@
-import torch
+""" Generate samples from trained normalizing flow. """
+from argparse import Namespace
 import numpy as np
 import os
 
+import torch
 
-def evaluate(model, args):
+from conformation.flows import NormalizingFlowModel
+
+
+def evaluate(model: NormalizingFlowModel, args: Namespace):
     """
     Generate samples from trained normalizing flow.
     :param model: PyTorch model.

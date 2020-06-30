@@ -1,13 +1,17 @@
+""" Neural network module definitions for normalizing flows. """
+from argparse import Namespace
 import numpy as np
+
 import torch
 # noinspection PyUnresolvedReferences
 from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
-from conformation.flows import RealNVP
+
 from conformation.flows import NormalizingFlowModel
+from conformation.flows import RealNVP
 
 
-def nets(input_dim, hidden_size):
+def nets(input_dim: int, hidden_size: int) -> nn.Sequential:
     """
     RealNVP "s" neural network definition.
     :param input_dim: Data input dimension.
@@ -18,7 +22,7 @@ def nets(input_dim, hidden_size):
                          nn.LeakyReLU(), nn.Linear(hidden_size, input_dim), nn.Tanh())
 
 
-def nett(input_dim, hidden_size):
+def nett(input_dim: int, hidden_size: int) -> nn.Sequential:
     """
     RealNVP "t" neural network definition.
     :param input_dim: Data input dimension.
@@ -29,7 +33,7 @@ def nett(input_dim, hidden_size):
                          nn.LeakyReLU(), nn.Linear(hidden_size, input_dim))
 
 
-def build_model(args):
+def build_model(args: Namespace) -> NormalizingFlowModel:
     """
     Function to build a RealNVP normalizing flow.
     :param args: System parameters.

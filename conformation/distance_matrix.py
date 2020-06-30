@@ -1,13 +1,15 @@
-import scipy.spatial
+""" Compute pairwise distance matrix from a conformation. """
 import numpy as np
 
+import scipy.spatial
 
-def dist_matrix(positions, destination):
+
+def dist_matrix(positions: np.ndarray, destination: str) -> None:
     """
-    Compute the pairwise distance matrix for a molecule and save as a text file in a specified file
-    :param positions: numpy array of atomic coordinates
-    :param destination: output file
-    :return: None
+    Compute the pairwise distance matrix for a molecule and save as a text file in a specified file.
+    :param positions: numpy array of atomic coordinates.
+    :param destination: output file.
+    :return: None.
     """
     num_atoms = positions.shape[0]
     dist_mat = np.zeros([num_atoms, num_atoms])

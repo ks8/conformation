@@ -1,5 +1,10 @@
+""" Normalizing flows class definitions. """
+from typing import List, Tuple
+
 import torch
 import torch.nn as nn
+# noinspection PyUnresolvedReferences
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 
 class RealNVP(nn.Module):
@@ -7,7 +12,7 @@ class RealNVP(nn.Module):
     Performs a single layer of the RealNVP flow.
     """
 
-    def __init__(self, nets, nett, mask, prior):
+    def __init__(self, nets: nn.Sequential, nett: nn.Sequential, mask: torch.Tensor, prior: MultivariateNormal) -> None:
         """
         :param nets: "s" neural network definition.
         :param nett: "t" neural network definition.
@@ -20,7 +25,7 @@ class RealNVP(nn.Module):
         self.t = nett
         self.s = nets
 
-    def forward(self, z):
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
         Transform a sample from the base distribution or previous layer.
         :param z: Sample from the base distribution or previous layer.
@@ -33,7 +38,7 @@ class RealNVP(nn.Module):
         x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
         return x
 
-    def inverse(self, x):
+    def inverse(self, x: torch.Tensor) -> torch.Tensor:
         """
         Compute the inverse of a target sample or a sample from the next layer.
         :param x: Sample from the target distribution or the next layer.
@@ -46,7 +51,7 @@ class RealNVP(nn.Module):
         z = (1 - self.mask) * (z - t) * torch.exp(-s) + z_
         return z
 
-    def log_abs_det_jacobian(self, x):
+    def log_abs_det_jacobian(self, x: torch.Tensor) -> torch.Tensor:
         """
         Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
         direction.
@@ -66,7 +71,7 @@ class NormalizingFlowModel(nn.Module):
     jacobians of the transformations, and the sample function samples from the flow starting at the base distribution.
     """
 
-    def __init__(self, base_dist, biject):
+    def __init__(self, base_dist: MultivariateNormal, biject: List[RealNVP]):
         """
         :param base_dist: Base distribution
         :param biject: List of flow layers
@@ -77,7 +82,7 @@ class NormalizingFlowModel(nn.Module):
         self.bijectors = nn.ModuleList(self.biject)
         self.log_det = []
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         Compute the inverse of a target distribution sample as well as the log abs det jacobians of the transformations
         :param x: Target sample
@@ -89,7 +94,7 @@ class NormalizingFlowModel(nn.Module):
             x = self.bijectors[b].inverse(x)
         return x, self.log_det
 
-    def sample(self, sample_layers):
+    def sample(self, sample_layers: int) -> torch.Tensor:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
         :param sample_layers: Number of layers to use for sampling

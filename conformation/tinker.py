@@ -1,21 +1,24 @@
+""" Run Tinker MD simulations and extract conformations. """
 import argparse
-import os
+from argparse import Namespace
 import numpy as np
+import os
+
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
 from rdkit.Chem import AllChem
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
-# import scipy.spatial
+
 from conformation.distance_matrix import dist_matrix
 
 
-def tinker_md(args):
+def tinker_md(args: Namespace) -> None:
     """
-    Generate MD simulation and conformations for molecules from SMILES string input
-    :param args: Argparse arguments
-    :return: None
+    Generate MD simulation and conformations for molecules from SMILES string input.
+    :param args: Argparse arguments.
+    :return: None.
     """
     for _, _, files in os.walk(args.input):
         for f in files:

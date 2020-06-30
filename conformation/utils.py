@@ -1,7 +1,15 @@
+""" Neural network auxiliary functions. """
+from argparse import Namespace
+
 import torch
+# noinspection PyUnresolvedReferences
+from torch.distributions.multivariate_normal import MultivariateNormal
+from typing import List
+
+from conformation.flows import NormalizingFlowModel
 
 
-def loss_func(z, log_jacobians, base_dist):
+def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: MultivariateNormal) -> torch.Tensor:
     """
     Loss function that computes the mean log probability of a training example by computing the log probability of its
     corresponding latent variable and the sum of the log abs det jacobians of the normalizing flow transformations.
@@ -14,7 +22,7 @@ def loss_func(z, log_jacobians, base_dist):
     return -(base_dist.log_prob(z) - sum(log_jacobians)).mean()
 
 
-def save_checkpoint(model, args, path):
+def save_checkpoint(model: NormalizingFlowModel, args: Namespace, path: str) -> None:
     """
     Saves a model checkpoint.
     :param model: A PyTorch model.

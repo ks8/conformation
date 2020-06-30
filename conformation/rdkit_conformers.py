@@ -1,18 +1,22 @@
+""" Generate conformations using RDKit. """
+import argparse
+from argparse import Namespace
+import numpy as np
+import os
+
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
 from rdkit.Chem import AllChem
-import numpy as np
-import argparse
-import os
+
 from conformation.distance_matrix import dist_matrix
 
 
-def conformers(args):
+def conformers(args: Namespace) -> None:
     """
-    Generate conformations for a molecule
-    :param args: Argparse arguments
-    :return: None
+    Generate conformations for a molecule.
+    :param args: Argparse arguments.
+    :return: None.
     """
     m = Chem.MolFromSmiles(args.smiles)
     m2 = Chem.AddHs(m)
@@ -56,10 +60,10 @@ def main():
 
     args = parser.parse_args()
 
-    os.makedirs(args.out, exist_ok=False)
-    os.makedirs(os.path.join(args.out, "pos"), exist_ok=False)
-    os.makedirs(os.path.join(args.out, "properties"), exist_ok=False)
-    os.makedirs(os.path.join(args.out, "distmat"), exist_ok=False)
+    os.makedirs(args.out)
+    os.makedirs(os.path.join(args.out, "pos"))
+    os.makedirs(os.path.join(args.out, "properties"))
+    os.makedirs(os.path.join(args.out, "distmat"))
     conformers(args)
 
 

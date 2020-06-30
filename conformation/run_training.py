@@ -1,4 +1,4 @@
-""" Run neural network training."""
+""" Run neural network training. """
 import argparse
 from argparse import Namespace
 import json

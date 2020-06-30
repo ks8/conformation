@@ -1,5 +1,6 @@
 """ Train function to execute training for one epoch. """
 from argparse import Namespace
+from logging import Logger
 from typing import Tuple
 
 # noinspection PyUnresolvedReferences
@@ -13,17 +14,22 @@ from conformation.flows import NormalizingFlowModel
 from conformation.utils import loss_func
 
 
-def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Namespace, n_iter: int) -> \
-        Tuple[int, float]:
+def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Namespace, logger: Logger,
+          n_iter: int) -> Tuple[int, float]:
     """
     Function for training a normalizing flow model.
-    :param n_iter: Number of training iterations completed so far.
     :param model: nn.Module neural network.
     :param optimizer: PyTorch optimizer.
     :param data: DataLoader.
     :param args: System args.
+    :param logger: Logger.
+    :param n_iter: Number of training iterations completed so far.
     :return: Total number of iterations completed.
     """
+
+    # Set up logger
+    debug, info = logger.debug, logger.info
+
     model.train()
 
     total_loss = 0.0
@@ -46,8 +52,8 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
         if (n_iter // args.batch_size) % args.log_frequency == 0:
             loss_avg = loss_sum / iter_count
             loss_sum, iter_count = 0, 0
-            print("Loss avg = {:.4e}".format(loss_avg))
+            debug("Loss avg = {:.4e}".format(loss_avg))
 
-    print("Total loss = {:.4e}".format(total_loss))
+    debug("Total loss = {:.4e}".format(total_loss))
 
     return n_iter, total_loss

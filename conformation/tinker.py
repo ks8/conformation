@@ -143,7 +143,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', type=str, dest='input', default=None,
-                        help='Folder path containing relevant input files')
+                        help='Folder path containing SMILES strings')
     parser.add_argument('--out', type=str, dest='out', default=None, help='Folder path containing output files')
     parser.add_argument('--param_path', type=str, dest='param_path',
                         default="/data/swansonk1/anaconda3/envs/my-rdkit-env/Tinker-FFE/tinker/params/mmff",

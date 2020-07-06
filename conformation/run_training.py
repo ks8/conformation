@@ -66,11 +66,9 @@ def run_training(args: Namespace, logger: Logger) -> None:
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     best_epoch, n_iter = 0, 0
-    for _ in trange(args.num_epochs):
+    for epoch in trange(args.num_epochs):
         n_iter, total_loss = train(model, optimizer, train_data, args, logger, n_iter)
-        save_checkpoint(model, args, os.path.join(args.save_dir, 'model.pt'))
-
-    evaluate(model, args)
+        save_checkpoint(model, args, os.path.join(args.save_dir, 'model-' + str(epoch) + '.pt'))
 
 
 def main():

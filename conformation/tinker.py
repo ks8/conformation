@@ -36,7 +36,7 @@ def tinker_md(args: Namespace) -> None:
             m = Chem.MolFromSmiles(smiles)
             m2 = Chem.AddHs(m)
             _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_starts)
-            _ = AllChem.MMFFOptimizeMoleculeConfs(m2,)
+            _ = AllChem.MMFFOptimizeMoleculeConfs(m2)
             print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
 
             # Convert PDB file to SDF file and remove PDB file
@@ -138,7 +138,7 @@ def tinker_md(args: Namespace) -> None:
 
 def main():
     """
-    Parse arguments and run tinkerMD function
+    Parse arguments and run tinkerMD function.
     :return: None
     """
     parser = argparse.ArgumentParser()

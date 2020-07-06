@@ -31,8 +31,6 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
     os.makedirs(os.path.join(save_dir, "conf"))
     os.makedirs(os.path.join(save_dir, "properties"))
 
-    distance_matrices = []
-
     with torch.no_grad():
         model.eval()
         num_atoms = num_atoms
@@ -58,7 +56,6 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                 boundsmat[indices[i][0], indices[i][1]] = distmat[indices[i][0], indices[i][1]] + offset
                 boundsmat[indices[i][1], indices[i][0]] = distmat[indices[i][1], indices[i][0]] - offset
             np.savetxt(os.path.join(save_dir, "distmat", "distmat-" + str(j) + ".txt"), distmat)
-            distance_matrices.append(gen_sample.cpu().numpy())
 
             ps.SetBoundsMat(boundsmat)
 
@@ -86,10 +83,3 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                     o.write("dihedral: " + str(dihedral))
             except ValueError:
                 continue
-
-        distance_matrices = np.array(distance_matrices)
-        with open(os.path.join(save_dir, "corrcoef.txt"), "w") as o:
-            for m, n in itertools.combinations(list(np.arange(distance_matrices.shape[1])), 2):
-                o.write(str(m) + " " + str(n) + " " + str(np.corrcoef(distance_matrices[:, m],
-                                                                      distance_matrices[:, n])[0][1]))
-                o.write('\n')

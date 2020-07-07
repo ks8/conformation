@@ -66,6 +66,10 @@ def tinker_md(args: Namespace) -> None:
             # Remove extraneous key files
             os.system("rm " + molecule_name + "*." + "key ")
 
+            # Create an overall molecule object for writing generated conformations to PDB file
+            mol = Chem.MolFromSmiles(smiles)
+            mol = Chem.AddHs(mol)
+
             # Run MD simulations and conformation extraction for each RDKit initial configuration
             for j in range(args.num_starts):
                 # Run the MD simulation
@@ -91,10 +95,12 @@ def tinker_md(args: Namespace) -> None:
                         # If we have finished extracting coordinates for one conformation, process the conformation
                         if line.split()[1] == molecule_name:
                             if not new_file:
-                                # Save the atomic positions to a text file in the "pos" folder
+
+                                # Keep track of conformer ID when adding to overall molecule object
+                                c.SetId(counter)
+
+                                # Save the atomic positions as a numpy array
                                 pos = np.array(pos)
-                                np.savetxt(os.path.join(args.out, "pos", "pos-" + str(counter) + "-" +
-                                                        molecule_name + ".txt"), pos)
 
                                 # Compute pairwise distance matrix and save to a text file in the "distmat" folder
                                 dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter) + "-"
@@ -103,6 +109,9 @@ def tinker_md(args: Namespace) -> None:
                                 # Save atomic coordinates to the conformation object
                                 for i in range(len(pos)):
                                     c.SetAtomPosition(i, Point3D(pos[i][0], pos[i][1], pos[i][2]))
+
+                                # Add the conformer to the overall molecule object
+                                mol.AddConformer(c)
 
                                 # Compute the specified dihedral angle
                                 if args.dihedral:
@@ -135,6 +144,9 @@ def tinker_md(args: Namespace) -> None:
                             pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
                         line = tmp.readline()
 
+            # Print the conformations to a PDB file
+            print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.out, "conformations.pdb"), "w+"))
+
 
 def main():
     """
@@ -166,7 +178,6 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.out)
-    os.makedirs(os.path.join(args.out, "pos"))
     os.makedirs(os.path.join(args.out, "properties"))
     os.makedirs(os.path.join(args.out, "distmat"))
     tinker_md(args)

@@ -1,7 +1,7 @@
 """ Generate samples from trained normalizing flow. """
-import itertools
 import numpy as np
 import os
+from typing import List
 
 # noinspection PyUnresolvedReferences
 import rdkit
@@ -15,9 +15,11 @@ from conformation.flows import NormalizingFlowModel
 
 
 def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: int, offset: float,
-           num_layers: int, num_test_samples: int) -> None:
+           num_layers: int, num_test_samples: int, dihedral: bool, dihedral_vals: List[int]) -> None:
     """
     Generate samples from trained normalizing flow.
+    :param dihedral_vals:
+    :param dihedral:
     :param model: PyTorch model.
     :param smiles: Molecular SMILES string.
     :param save_dir: Directory for saving generated conformations.
@@ -28,8 +30,10 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
     :return: None.
     """
     os.makedirs(os.path.join(save_dir, "distmat"))
-    os.makedirs(os.path.join(save_dir, "conf"))
     os.makedirs(os.path.join(save_dir, "properties"))
+
+    # Conformation counter
+    counter = 0
 
     with torch.no_grad():
         model.eval()
@@ -39,6 +43,11 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
         mol = Chem.MolFromSmiles(smiles)
         mol = Chem.AddHs(mol)
         ps = AllChem.ETKDG()
+
+        # Create a random conformation object
+        # noinspection PyUnusedLocal
+        tmp = Chem.MolFromSmiles(smiles)
+        tmp = Chem.AddHs(mol)
 
         for j in range(num_test_samples):
             gen_sample = model.sample(num_layers)
@@ -57,29 +66,41 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                 boundsmat[indices[i][1], indices[i][0]] = distmat[indices[i][1], indices[i][0]] - offset
             np.savetxt(os.path.join(save_dir, "distmat", "distmat-" + str(j) + ".txt"), distmat)
 
+            # Set the bounds matrix
             ps.SetBoundsMat(boundsmat)
 
-            # Generate and print conformation as PDB file
-            AllChem.EmbedMolecule(mol, params=ps)
+            # Create a conformation from the distance bounds matrix
+            # noinspection PyUnusedLocal
+            AllChem.EmbedMolecule(tmp, params=ps)
 
             try:
-                # Compute the specified dihedral angle
-                c = mol.GetConformer()
+                # Test that the conformation is valid
+                c = tmp.GetConformer()
 
-                print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(save_dir, "conf",
-                                                                                 "conf-" + str(j) + ".txt"), "w+"))
+                # Set the conformer Id and increment the conformation counter
+                c.SetId(counter)
+                counter += 1
 
-                dihedral = Chem.rdMolTransforms.GetDihedralRad(c, 2, 0, 1, 5)
+                # Add the conformer to the overall molecule object
+                mol.AddConformer(c)
 
-                # Compute the potential energy of the conformation
-                res = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=0)
-
-                # Write property information to a text file in the "properties" folder
-                with open(os.path.join(save_dir, "properties", "energy-rms-dihedral-" + str(j) + ".txt"), "w") as o:
+                # Compute properties of the conformation
+                res = AllChem.MMFFOptimizeMoleculeConfs(tmp, maxIters=0)
+                with open(os.path.join(save_dir, "properties", "energy-rms-dihedral-" + str(counter) + ".txt"), "w") \
+                        as o:
                     o.write("energy: " + str(res[0][1]))
                     o.write('\n')
                     o.write("rms: " + "nan")
                     o.write('\n')
-                    o.write("dihedral: " + str(dihedral))
+                    if dihedral:
+                        dihedral_val = Chem.rdMolTransforms.GetDihedralRad(c, dihedral_vals[0], dihedral_vals[1],
+                                                                           dihedral_vals[2], dihedral_vals[3])
+                    else:
+                        dihedral_val = "nan"
+                    o.write("dihedral: " + str(dihedral_val))
+
             except ValueError:
                 continue
+
+        # Print the conformations to a PDB file
+        print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(save_dir, "conformations.pdb"), "w+"))

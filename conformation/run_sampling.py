@@ -31,7 +31,8 @@ def run_sampling(args: Namespace) -> None:
             print('Moving model to cuda')
             model = model.cuda()
 
-        sample(model, args.smiles, args.save_dir, args.num_atoms, args.offset, args.num_layers, args.num_test_samples)
+        sample(model, args.smiles, args.save_dir, args.num_atoms, args.offset, args.num_layers, args.num_test_samples,
+               args.dihedral, args.dihedral_vals)
 
     else:
         print('Must specify a model to load.')
@@ -54,6 +55,10 @@ def main():
                         default=None, help='Molecular SMILES string')
     parser.add_argument('--offset', type=float, dest='offset',
                         default=0.0005, help='Distance bounds matrix offset')
+    parser.add_argument('--dihedral', action='store_true', default=False,
+                        help='Use when computing dihedral angle values')
+    parser.add_argument('--dihedral_vals', type=int, dest='dihedral_vals', nargs='+', default=[2, 0, 1, 5],
+                        help='Atom IDs for dihedral')
     args = parser.parse_args()
 
     os.makedirs(args.save_dir)

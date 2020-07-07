@@ -68,7 +68,7 @@ def run_training(args: Namespace, logger: Logger) -> None:
     best_epoch, n_iter = 0, 0
     for epoch in trange(args.num_epochs):
         n_iter, total_loss = train(model, optimizer, train_data, args, logger, n_iter)
-        save_checkpoint(model, args, os.path.join(args.save_dir, 'model-' + str(epoch) + '.pt'))
+        save_checkpoint(model, args, os.path.join(args.save_dir, "checkpoints", 'model-' + str(epoch) + '.pt'))
 
 
 def main():
@@ -86,13 +86,13 @@ def main():
     parser.add_argument('--hidden_size', type=str, dest='hidden_size', default=256, help='Hidden size')
     parser.add_argument('--num_layers', type=int, dest='num_layers', default=6, help='# RealNVP layers')
     parser.add_argument('--log_frequency', type=int, dest='log_frequency', default=10, help='Log frequency')
-    parser.add_argument('--num_test_samples', type=int, dest='num_test_samples', default=10000, help='# test samples')
     parser.add_argument('--save_dir', type=str, dest='save_dir', default=None, help='Save directory')
     parser.add_argument('--checkpoint_path', type=str, dest='checkpoint_path',
                         default=None, help='Directory of checkpoint')
     args = parser.parse_args()
 
     os.makedirs(args.save_dir)
+    os.makedirs(os.path.join(args.save_dir, "checkpoints"))
     args.cuda = torch.cuda.is_available()
 
     logger = create_logger(name='train', save_dir=args.save_dir)

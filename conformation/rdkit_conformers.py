@@ -1,7 +1,6 @@
 """ Generate conformations using RDKit. """
 import argparse
 from argparse import Namespace
-import numpy as np
 import os
 
 # noinspection PyUnresolvedReferences
@@ -25,14 +24,9 @@ def conformers(args: Namespace) -> None:
     rms_list = [0.0]
     AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 
-    with open(os.path.join(args.out, "pos", "atoms.txt"), "w") as f:
-        for atom in m2.GetAtoms():
-            f.write(atom.GetSymbol() + '\n')
-
     i = 0
     for c in m2.GetConformers():
         pos = c.GetPositions()
-        np.savetxt(os.path.join(args.out, "pos", "pos-" + str(i) + ".txt"), pos)
         dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(i) + ".txt"))
         with open(os.path.join(args.out, "properties", "energy-rms-dihedral-" + str(i) + ".txt"), "w") as f:
             f.write("energy: " + str(res[i][1]))
@@ -46,6 +40,9 @@ def conformers(args: Namespace) -> None:
                 dihedral = "nan"
             f.write("dihedral: " + str(dihedral))
         i += 1
+
+    # Print the conformations to a PDB file
+    print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(os.path.join(args.out, "conformations.pdb"), "w+"))
 
 
 def main():
@@ -66,7 +63,6 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.out)
-    os.makedirs(os.path.join(args.out, "pos"))
     os.makedirs(os.path.join(args.out, "properties"))
     os.makedirs(os.path.join(args.out, "distmat"))
     conformers(args)

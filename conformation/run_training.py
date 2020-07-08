@@ -83,7 +83,7 @@ def main():
     parser.add_argument('--lr', type=float, dest='lr', default=1e-4, help='Learning rate')
     parser.add_argument('--input_dim', type=int, dest='input_dim', default=28, help='Input dimension')
     parser.add_argument('--num_atoms', type=int, dest='num_atoms', default=8, help='Number of atoms')
-    parser.add_argument('--hidden_size', type=str, dest='hidden_size', default=256, help='Hidden size')
+    parser.add_argument('--hidden_size', type=int, dest='hidden_size', default=256, help='Hidden size')
     parser.add_argument('--num_layers', type=int, dest='num_layers', default=6, help='# RealNVP layers')
     parser.add_argument('--log_frequency', type=int, dest='log_frequency', default=10, help='Log frequency')
     parser.add_argument('--save_dir', type=str, dest='save_dir', default=None, help='Save directory')

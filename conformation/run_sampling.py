@@ -31,7 +31,7 @@ def run_sampling(args: Namespace) -> None:
             print('Moving model to cuda')
             model = model.cuda()
 
-        sample(model, args.smiles, args.save_dir, args.num_atoms, args.offset, args.num_layers, args.num_test_samples,
+        sample(model, args.smiles, args.save_dir, args.num_atoms, args.offset, args.num_layers, args.num_samples,
                args.dihedral, args.dihedral_vals)
 
     else:
@@ -47,7 +47,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_atoms', type=int, dest='num_atoms', default=8, help='Number of atoms')
     parser.add_argument('--num_layers', type=int, dest='num_layers', default=6, help='# RealNVP layers')
-    parser.add_argument('--num_test_samples', type=int, dest='num_test_samples', default=10000, help='# test samples')
+    parser.add_argument('--num_samples', type=int, dest='num_samples', default=10000, help='# test samples')
     parser.add_argument('--save_dir', type=str, dest='save_dir', default=None, help='Save directory')
     parser.add_argument('--checkpoint_path', type=str, dest='checkpoint_path',
                         default=None, help='Directory of checkpoint')

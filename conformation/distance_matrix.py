@@ -19,3 +19,19 @@ def dist_matrix(positions: np.ndarray, destination: str) -> None:
                 dist_mat[i][j] = scipy.spatial.distance.euclidean(positions[i], positions[j])
                 dist_mat[j][i] = dist_mat[i][j]
     np.savetxt(destination, dist_mat)
+
+
+def distmat_to_vec(path: str) -> np.ndarray:
+    """
+
+    :param path:
+    :return:
+    """
+    data = []
+    distmat = np.loadtxt(path)
+    num_atoms = distmat.shape[0]
+    for m in range(num_atoms):
+        for n in range(1, num_atoms):
+            if n > m:
+                data.append(distmat[m][n])
+    return np.array(data)

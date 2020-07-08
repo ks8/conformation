@@ -73,76 +73,79 @@ def tinker_md(args: Namespace) -> None:
             # Run MD simulations and conformation extraction for each RDKit initial configuration
             for j in range(args.num_starts):
                 # Run the MD simulation
-                os.system("dynamic " + os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts
-                                                                                                         ))) + "d}").
-                                                    format(j + 1) + ".xyz") + " -k " + key_name + " " +
-                          str(args.num_steps) + " " + str(args.time_step) + " " + str(args.save_step) + " " +
-                          str(args.ensemble) + " " + str(args.temp))
+                try:
+                    os.system("dynamic " + os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts
+                                                                                                             ))) + "d}").
+                                                        format(j + 1) + ".xyz") + " -k " + key_name + " " +
+                              str(args.num_steps) + " " + str(args.time_step) + " " + str(args.save_step) + " " +
+                              str(args.ensemble) + " " + str(args.temp))
 
-                # Create a random conformation object, used for computing properties such as energy, dihedral angle
-                m = Chem.MolFromSmiles(smiles)
-                m2 = Chem.AddHs(m)
-                _ = AllChem.EmbedMultipleConfs(m2, numConfs=1)
-                c = m2.GetConformers()[0]
+                    # Create a random conformation object, used for computing properties such as energy, dihedral angle
+                    m = Chem.MolFromSmiles(smiles)
+                    m2 = Chem.AddHs(m)
+                    _ = AllChem.EmbedMultipleConfs(m2, numConfs=1)
+                    c = m2.GetConformers()[0]
 
-                # Open the trajectory (.arc) file and process the conformations
-                with open(os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts))) +
-                                                                        "d}").format(j + 1) + ".arc")) as tmp:
-                    line = tmp.readline()
-                    pos = []
-                    new_file = True
-                    while line:
-                        # If we have finished extracting coordinates for one conformation, process the conformation
-                        if line.split()[1] == molecule_name:
-                            if not new_file:
-
-                                # Keep track of conformer ID when adding to overall molecule object
-                                c.SetId(counter)
-
-                                # Save the atomic positions as a numpy array
-                                pos = np.array(pos)
-
-                                # Compute pairwise distance matrix and save to a text file in the "distmat" folder
-                                dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter) + "-"
-                                                              + molecule_name + ".txt"))
-
-                                # Save atomic coordinates to the conformation object
-                                for i in range(len(pos)):
-                                    c.SetAtomPosition(i, Point3D(pos[i][0], pos[i][1], pos[i][2]))
-
-                                # Add the conformer to the overall molecule object
-                                mol.AddConformer(c)
-
-                                # Compute the specified dihedral angle
-                                if args.dihedral:
-                                    dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
-                                                                                   args.dihedral_vals[1],
-                                                                                   args.dihedral_vals[2],
-                                                                                   args.dihedral_vals[3])
-                                else:
-                                    dihedral = "nan"
-
-                                # Compute the potential energy of the conformation
-                                res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=0)
-
-                                # Write property information to a text file in the "properties" folder
-                                with open(os.path.join(args.out, "properties", "energy-rms-dihedral-" +
-                                                                               str(counter) + "-" + molecule_name +
-                                                                               ".txt"), "w") as o:
-                                    o.write("energy: " + str(res[0][1]))
-                                    o.write('\n')
-                                    o.write("rms: " + "nan")
-                                    o.write('\n')
-                                    o.write("dihedral: " + str(dihedral))
-
-                                pos = []
-                                counter += 1
-
-                        # Continue extracting coordinates for a single conformation
-                        else:
-                            new_file = False
-                            pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
+                    # Open the trajectory (.arc) file and process the conformations
+                    with open(os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts))) +
+                                                                            "d}").format(j + 1) + ".arc")) as tmp:
                         line = tmp.readline()
+                        pos = []
+                        new_file = True
+                        while line:
+                            # If we have finished extracting coordinates for one conformation, process the conformation
+                            if line.split()[1] == molecule_name:
+                                if not new_file:
+
+                                    # Keep track of conformer ID when adding to overall molecule object
+                                    c.SetId(counter)
+
+                                    # Save the atomic positions as a numpy array
+                                    pos = np.array(pos)
+
+                                    # Compute pairwise distance matrix and save to a text file in the "distmat" folder
+                                    dist_matrix(pos, os.path.join(args.out, "distmat", "distmat-" + str(counter) + "-"
+                                                                  + molecule_name + ".txt"))
+
+                                    # Save atomic coordinates to the conformation object
+                                    for i in range(len(pos)):
+                                        c.SetAtomPosition(i, Point3D(pos[i][0], pos[i][1], pos[i][2]))
+
+                                    # Add the conformer to the overall molecule object
+                                    mol.AddConformer(c)
+
+                                    # Compute the specified dihedral angle
+                                    if args.dihedral:
+                                        dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
+                                                                                       args.dihedral_vals[1],
+                                                                                       args.dihedral_vals[2],
+                                                                                       args.dihedral_vals[3])
+                                    else:
+                                        dihedral = "nan"
+
+                                    # Compute the potential energy of the conformation
+                                    res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=0)
+
+                                    # Write property information to a text file in the "properties" folder
+                                    with open(os.path.join(args.out, "properties", "energy-rms-dihedral-" +
+                                                                                   str(counter) + "-" + molecule_name +
+                                                                                   ".txt"), "w") as o:
+                                        o.write("energy: " + str(res[0][1]))
+                                        o.write('\n')
+                                        o.write("rms: " + "nan")
+                                        o.write('\n')
+                                        o.write("dihedral: " + str(dihedral))
+
+                                    pos = []
+                                    counter += 1
+
+                            # Continue extracting coordinates for a single conformation
+                            else:
+                                new_file = False
+                                pos.append([float(line.split()[2]), float(line.split()[3]), float(line.split()[4])])
+                            line = tmp.readline()
+                except FileNotFoundError:
+                    continue
 
             # Print the conformations to a PDB file
             print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.out, "conformations.pdb"), "w+"))

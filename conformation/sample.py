@@ -15,7 +15,7 @@ from conformation.flows import NormalizingFlowModel
 
 
 def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: int, offset: float,
-           num_layers: int, num_test_samples: int, dihedral: bool, dihedral_vals: List[int]) -> None:
+           num_layers: int, num_samples: int, dihedral: bool, dihedral_vals: List[int]) -> None:
     """
     Generate samples from trained normalizing flow.
     :param dihedral_vals:
@@ -25,7 +25,7 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
     :param save_dir: Directory for saving generated conformations.
     :param num_atoms: Total number of atoms in the molecule.
     :param offset: Distance bounds matrix offset.
-    :param num_test_samples: Number of conformations to generate.
+    :param num_samples: Number of conformations to generate.
     :param num_layers: Number of layers to use in generating sample.
     :return: None.
     """
@@ -49,7 +49,7 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
         tmp = Chem.MolFromSmiles(smiles)
         tmp = Chem.AddHs(mol)
 
-        for j in range(num_test_samples):
+        for j in range(num_samples):
             gen_sample = model.sample(num_layers)
             distmat = np.zeros([num_atoms, num_atoms])
             boundsmat = np.zeros([num_atoms, num_atoms])
@@ -64,7 +64,6 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
 
                 boundsmat[indices[i][0], indices[i][1]] = distmat[indices[i][0], indices[i][1]] + offset
                 boundsmat[indices[i][1], indices[i][0]] = distmat[indices[i][1], indices[i][0]] - offset
-            np.savetxt(os.path.join(save_dir, "distmat", "distmat-" + str(j) + ".txt"), distmat)
 
             # Set the bounds matrix
             ps.SetBoundsMat(boundsmat)
@@ -83,6 +82,8 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
 
                 # Add the conformer to the overall molecule object
                 mol.AddConformer(c)
+
+                np.savetxt(os.path.join(save_dir, "distmat", "distmat-" + str(counter) + ".txt"), distmat)  # TODO: move inside try block and have while loop generating correct number of valid configs
 
                 # Compute properties of the conformation
                 res = AllChem.MMFFOptimizeMoleculeConfs(tmp, maxIters=0)

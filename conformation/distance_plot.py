@@ -1,11 +1,14 @@
 """ Plot distributions of atomic pairwise distances. """
 import argparse
 from argparse import Namespace
+import itertools
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+
+from conformation.distance_matrix import distmat_to_vec
 
 
 def distance_plot(args: Namespace):
@@ -18,20 +21,12 @@ def distance_plot(args: Namespace):
     distances = []
     for _, _, files in os.walk(args.input):
         for f in files:
-            dist = np.loadtxt(os.path.join(args.input, f))
-            num_atoms = dist.shape[0]
-            distance = []
-            for i in range(num_atoms):
-                for j in range(1, num_atoms):
-                    if j > i:
-                        distance.append(dist[i][j])
-            distances.append(distance)
+            num_atoms, data = distmat_to_vec(os.path.join(args.input, f))
+            distances.append(data)
 
     labels = []
-    for i in range(num_atoms):
-        for j in range(1, num_atoms):
-            if j > i:
-                labels.append([i, j])
+    for i, j in itertools.combinations(np.arange(num_atoms), 2):
+        labels.append([i, j])
 
     distances = np.array(distances)
     for i in range(distances.shape[1]):

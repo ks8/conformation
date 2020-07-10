@@ -1,5 +1,6 @@
 """ Generate a molecular conformation from an atomic pairwise distance matrix. """
 import argparse
+import itertools
 from argparse import Namespace
 import numpy as np
 import os
@@ -29,11 +30,9 @@ def distmat_to_conf(smiles: str, path: str, out: str, offset: float = 0.0005) ->
     # Use the pairwise distance matrix to set the ETKDG bounds matrix
     distmat = np.loadtxt(path)
     num_atoms = distmat.shape[0]
-    for i in range(num_atoms):
-        for j in range(num_atoms):
-            if j > i:
-                distmat[i][j] += offset
-                distmat[j][i] -= offset
+    for i, j in itertools.combinations(np.arange(num_atoms), 2):
+        distmat[i][j] += offset
+        distmat[j][i] -= offset
     ps.SetBoundsMat(distmat)
 
     # Generate and print conformation as PDB file

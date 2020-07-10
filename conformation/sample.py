@@ -1,4 +1,5 @@
 """ Generate samples from trained normalizing flow. """
+import itertools
 import numpy as np
 import os
 from typing import List
@@ -54,10 +55,8 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
             distmat = np.zeros([num_atoms, num_atoms])
             boundsmat = np.zeros([num_atoms, num_atoms])
             indices = []
-            for m in range(num_atoms):
-                for n in range(1, num_atoms):
-                    if n > m:
-                        indices.append((m, n))
+            for m, n in itertools.combinations(np.arange(num_atoms), 2):
+                indices.append((m, n))
             for i in range(len(gen_sample)):
                 distmat[indices[i][0], indices[i][1]] = gen_sample[i].item()
                 distmat[indices[i][1], indices[i][0]] = distmat[indices[i][0], indices[i][1]]

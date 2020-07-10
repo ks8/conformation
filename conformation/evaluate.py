@@ -1,5 +1,4 @@
 """ Compute evaluation metrics. """
-import argparse
 import itertools
 import math
 import numpy as np
@@ -30,7 +29,8 @@ def load_dist_matrices(data_dir: str) -> np.ndarray:
     distance_vectors = []
     for _, _, files in os.walk(data_dir):
         for f in files:
-            distance_vectors.append(distmat_to_vec(os.path.join(data_dir, f)))
+            _, data = distmat_to_vec(os.path.join(data_dir, f))
+            distance_vectors.append(data)
     return np.array(distance_vectors)
 
 
@@ -118,12 +118,11 @@ class Args(Tap):
     out: str  # Path to output text file
 
 
-def main():
+def main(args: Args):
     """
     Parse arguments and run run_training function.
     :return: None.
     """
-    args = Args().parse_args()
 
     # Load distance matrices
     distance_vectors_1 = load_dist_matrices(args.distmat_dir_1)
@@ -151,7 +150,3 @@ def main():
     # Run evaluation
     evaluate(distance_vectors_1, distance_vectors_2, conformations_1, conformations_2, args.out, args.num_dihedral_bins,
              num_atoms)
-
-
-if __name__ == '__main__':
-    main()

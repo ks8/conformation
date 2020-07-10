@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 from conformation.data_pytorch import Data
+from conformation.distance_matrix import distmat_to_vec
 
 
 class MolDataset(Dataset):
@@ -25,14 +26,8 @@ class MolDataset(Dataset):
         return len(self.metadata)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        distmat = np.loadtxt(self.metadata[idx]['path'])
-        data = []
-        num_atoms = distmat.shape[0]
-        for m in range(num_atoms):
-            for n in range(1, num_atoms):
-                if n > m:
-                    data.append(distmat[m][n])
-        data = torch.from_numpy(np.array(data))
+        _, data = distmat_to_vec(self.metadata[idx]['path'])
+        data = torch.from_numpy(data)
         data = data.type(torch.float32)
 
         return data

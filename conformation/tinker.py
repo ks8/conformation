@@ -74,8 +74,9 @@ def tinker_md(args: Namespace) -> None:
             for j in range(args.num_starts):
                 # Run the MD simulation
                 try:
-                    os.system("dynamic " + os.path.join(args.out, molecule_name + "_" + ("{:0" + str(len(str(args.num_starts
-                                                                                                             ))) + "d}").
+                    os.system("dynamic " + os.path.join(args.out, molecule_name + "_" + ("{:0" +
+                                                                                         str(len(str(args.num_starts)))
+                                                                                         + "d}").
                                                         format(j + 1) + ".xyz") + " -k " + key_name + " " +
                               str(args.num_steps) + " " + str(args.time_step) + " " + str(args.save_step) + " " +
                               str(args.ensemble) + " " + str(args.temp))

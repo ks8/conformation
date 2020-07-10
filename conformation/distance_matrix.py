@@ -1,5 +1,7 @@
 """ Compute pairwise distance matrix from a conformation. """
+import itertools
 import numpy as np
+from typing import Tuple
 
 import scipy.spatial
 
@@ -13,25 +15,20 @@ def dist_matrix(positions: np.ndarray, destination: str) -> None:
     """
     num_atoms = positions.shape[0]
     dist_mat = np.zeros([num_atoms, num_atoms])
-    for i in range(num_atoms):
-        for j in range(1, num_atoms):
-            if j > i:
-                dist_mat[i][j] = scipy.spatial.distance.euclidean(positions[i], positions[j])
-                dist_mat[j][i] = dist_mat[i][j]
+    for i, j in itertools.combinations(np.arange(num_atoms), 2):
+        dist_mat[i][j] = scipy.spatial.distance.euclidean(positions[i], positions[j])
+        dist_mat[j][i] = dist_mat[i][j]
     np.savetxt(destination, dist_mat)
 
 
-def distmat_to_vec(path: str) -> np.ndarray:
+def distmat_to_vec(path: str) -> Tuple[int, np.ndarray]:
     """
-
-    :param path:
-    :return:
+    Extract the upper triangle of a distance matrix and return it as a 1-D numpy array.
+    :param path: Path to file containing numpy distance matrix.
+    :return: 1-D numpy array containing the upper triangle of the distance matrix.
     """
-    data = []
     distmat = np.loadtxt(path)
     num_atoms = distmat.shape[0]
-    for m in range(num_atoms):
-        for n in range(1, num_atoms):
-            if n > m:
-                data.append(distmat[m][n])
-    return np.array(data)
+    vec = distmat[np.triu_indices(distmat.shape[1], k=1)]
+
+    return num_atoms, vec

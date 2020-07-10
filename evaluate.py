@@ -1,5 +1,5 @@
 """ Compute evaluation metrics. """
-from conformation.evaluate import main
+from conformation.evaluate import main, Args
 
 if __name__ == '__main__':
-    main()
+    main(Args().parse_args())

@@ -1,5 +1,5 @@
 """ Generate metadata. """
-from conformation.metadata import main
+from conformation.metadata import metadata, Args
 
 if __name__ == '__main__':
-    main()
+    metadata(Args().parse_args())

@@ -1,5 +1,5 @@
 """ Plot distributions of atomic pairwise distances. """
-from conformation.distance_plot import main
+from conformation.distance_plot import distance_plot, Args
 
 if __name__ == '__main__':
-    main()
+    distance_plot(Args().parse_args())

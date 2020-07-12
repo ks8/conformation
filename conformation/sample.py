@@ -4,12 +4,9 @@ import numpy as np
 import os
 from typing import List
 
-# noinspection PyUnresolvedReferences
 import rdkit
-# noinspection PyUnresolvedReferences
 from rdkit import Chem
-# noinspection PyUnresolvedReferences
-from rdkit.Chem import AllChem, rdDistGeom
+from rdkit.Chem import AllChem
 import torch
 
 from conformation.flows import NormalizingFlowModel
@@ -46,9 +43,8 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
         ps = AllChem.ETKDG()
 
         # Create a random conformation object
-        # noinspection PyUnusedLocal
         tmp = Chem.MolFromSmiles(smiles)
-        tmp = Chem.AddHs(mol)
+        tmp = Chem.AddHs(tmp)
 
         for j in range(num_samples):
             gen_sample = model.sample(num_layers)

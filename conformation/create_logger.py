@@ -1,4 +1,4 @@
-""" Create logger. """
+""" Function for creating PyTorch training logger. """
 import logging
 import os
 
@@ -6,7 +6,7 @@ import os
 def create_logger(name: str, save_dir: str = None, quiet: bool = False) -> logging.Logger:
     """
     Creates a logger with a stream handler and two file handlers.
-    The stream handler prints to the screen depending on the value of `quiet`.
+    The stream handler prints to the screen depending on the value of 'quiet'.
     One file handler (verbose.log) saves all logs, the other (quiet.log) only saves important info.
     :param name: The name of the logger.
     :param save_dir: The directory in which to save the logs.

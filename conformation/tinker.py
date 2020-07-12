@@ -7,7 +7,7 @@ import os
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdmolfiles, rdMolTransforms
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
 
@@ -37,7 +37,7 @@ def tinker_md(args: Namespace) -> None:
             m2 = Chem.AddHs(m)
             _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_starts)
             _ = AllChem.MMFFOptimizeMoleculeConfs(m2)
-            print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
+            print(rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
 
             # Convert PDB file to SDF file and remove PDB file
             os.system("obabel -ipdb " + molecule_name + " -osdf -O " + sdf_name)
@@ -117,7 +117,7 @@ def tinker_md(args: Namespace) -> None:
 
                                     # Compute the specified dihedral angle
                                     if args.dihedral:
-                                        dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
+                                        dihedral = rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0],
                                                                                        args.dihedral_vals[1],
                                                                                        args.dihedral_vals[2],
                                                                                        args.dihedral_vals[3])

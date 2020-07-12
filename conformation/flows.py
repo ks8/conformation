@@ -2,9 +2,9 @@
 from typing import List, Tuple
 
 import torch
+from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
 # noinspection PyUnresolvedReferences
-from torch.distributions.multivariate_normal import MultivariateNormal
 
 
 class RealNVP(nn.Module):
@@ -18,6 +18,7 @@ class RealNVP(nn.Module):
         :param nett: "t" neural network definition.
         :param mask: Mask identifying which components of the vector will be processed together in any given layer.
         :param prior: Base distribution.
+        :return: None.
         """
         super(RealNVP, self).__init__()
         self.prior = prior
@@ -73,8 +74,8 @@ class NormalizingFlowModel(nn.Module):
 
     def __init__(self, base_dist: MultivariateNormal, biject: List[RealNVP]):
         """
-        :param base_dist: Base distribution
-        :param biject: List of flow layers
+        :param base_dist: Base distribution.
+        :param biject: List of flow layers.
         """
         super(NormalizingFlowModel, self).__init__()
         self.biject = biject  # List of transformations, each of which is nn.Module
@@ -85,8 +86,8 @@ class NormalizingFlowModel(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         Compute the inverse of a target distribution sample as well as the log abs det jacobians of the transformations
-        :param x: Target sample
-        :return: Inverse, log abs det jacobians
+        :param x: Target sample.
+        :return: Inverse, log abs det jacobians.
         """
         self.log_det = []  # Accumulate the log abs det jacobians of the transformations
         for b in range(len(self.bijectors) - 1, -1, -1):
@@ -97,7 +98,7 @@ class NormalizingFlowModel(nn.Module):
     def sample(self, sample_layers: int) -> torch.Tensor:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
-        :param sample_layers: Number of layers to use for sampling
+        :param sample_layers: Number of layers to use for sampling.
         :return: Sample from the approximate target distribution.
         """
         x = self.base_dist.sample()

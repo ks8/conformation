@@ -16,7 +16,6 @@ from tqdm import trange
 
 from conformation.create_logger import create_logger
 from conformation.dataset import MolDataset
-from conformation.evaluate import evaluate
 from conformation.model import build_model
 from conformation.train import train
 from conformation.utils import save_checkpoint, load_checkpoint, param_count

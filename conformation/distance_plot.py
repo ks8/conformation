@@ -1,6 +1,4 @@
 """ Plot distributions of atomic pairwise distances. """
-import argparse
-from argparse import Namespace
 import itertools
 import matplotlib
 matplotlib.use('Agg')
@@ -8,10 +6,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+# noinspection PyPackageRequirements
+from tap import Tap
+
 from conformation.distance_matrix import distmat_to_vec
 
 
-def distance_plot(args: Namespace):
+class Args(Tap):
+    """
+    System arguments.
+    """
+    data_dir: str  # Path to directory containing all distance matrices
+    out: str  # Output file name
+    num_bins: int = 50  # Number of histogram bins
+
+
+def distance_plot(args: Args):
     """
     Plot histograms of pairwise distances for a set of molecular conformations.
     :param args: Argparse arguments.
@@ -19,9 +29,9 @@ def distance_plot(args: Namespace):
     """
     num_atoms = None
     distances = []
-    for _, _, files in os.walk(args.input):
+    for _, _, files in os.walk(args.data_dir):
         for f in files:
-            num_atoms, data = distmat_to_vec(os.path.join(args.input, f))
+            num_atoms, data = distmat_to_vec(os.path.join(args.data_dir, f))
             distances.append(data)
 
     labels = []
@@ -36,21 +46,3 @@ def distance_plot(args: Namespace):
         plt.xlabel("Distance ($\AA$)")
         plt.savefig(args.out + "-" + str(labels[i][0]) + "-" + str(labels[i][1]) + "-distances.png")
         plt.clf()
-
-
-def main():
-    """
-    Parse arguments and execute file processing
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, dest='input', default=None, help='Folder path containing relevant files')
-    parser.add_argument('--num_bins', type=int, dest='num_bins', default=50,
-                        help='# histogram bins')
-    parser.add_argument('--out', type=str, dest='out', default=None, help='File name for plot image')
-    args = parser.parse_args()
-
-    distance_plot(args)
-
-
-if __name__ == '__main__':
-    main()

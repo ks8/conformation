@@ -1,5 +1,6 @@
 """ Relational network definition """
 import numpy as np
+import torch
 import torch.nn.functional as F
 
 from conformation.utils import to_undirected
@@ -32,7 +33,6 @@ class RelationalNetwork(torch.nn.Module):
             [torch.nn.GRU(self.hidden_size, self.hidden_size) for _ in range(self.num_layers)])  # GRU cells
         self.final_linear_layer = torch.nn.Linear(self.hidden_size, self.final_linear_size)  # Final linear layer
         self.output_layer = torch.nn.Linear(self.final_linear_size, 1)  # Output layer
-        self.sigmoid = torch.nn.Sigmoid()  # Sigmoid for 0/1 predictions
 
     def forward(self, batch):
         """
@@ -68,7 +68,6 @@ class RelationalNetwork(torch.nn.Module):
             e_ij_in = e_ij_prime + e_ij_in  # Add residual connection to edge input
 
         e_ij_final = self.final_linear_layer(e_ij_in)  # Compute final linear layer
-        out = self.output_layer(e_ij_final)  # Output layer
-        preds = self.sigmoid(out)
+        preds = self.output_layer(e_ij_final)  # Output layer
 
         return preds

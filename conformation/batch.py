@@ -1,4 +1,6 @@
 """ Batch class for mini-batch parallelization. """
+import torch
+
 from conformation.data_pytorch import Data
 
 

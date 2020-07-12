@@ -109,7 +109,7 @@ class GraphDataset(Dataset):
         data.y = torch.tensor(target, dtype=torch.float)
 
         # Unique ID
-        data.uid = torch.tensor([int(self.metadata[idx]['smiles'])])  # Unique id
+        data.uid = self.metadata[idx]['smiles']  # Unique id
 
         return data
 

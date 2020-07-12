@@ -183,5 +183,9 @@ class Data(object):
         """
         :return: Representation of class in interpreter
         """
-        info = ['{}={}'.format(key, list(item.size())) for key, item in self]
+        if type(self.uid) == str:
+            info = ['{}={}'.format(key, list(item.size())) if type(item) != str else '{}={}'.format(key, item) for
+                    key, item in self]
+        else:
+            info = ['{}={}'.format(key, list(item.size())) for key, item in self]
         return '{}({})'.format(self.__class__.__name__, ', '.join(info))

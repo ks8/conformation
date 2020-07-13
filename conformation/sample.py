@@ -71,6 +71,11 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                 # Test that the conformation is valid
                 c = tmp.GetConformer()
 
+                # Try saving the molecule and reloading
+                print(Chem.rdmolfiles.MolToPDBBlock(tmp), file=open(os.path.join(save_dir, "test.pdb"), "w+"))
+                test_mol = AllChem.MolFromPDBFile(os.path.join(save_dir, "test.pdb"), removeHs=False)
+                test_mol.GetConformer()
+
                 # Set the conformer Id and increment the conformation counter
                 c.SetId(counter)
                 counter += 1
@@ -97,6 +102,8 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
 
             except ValueError:
                 continue
+            except AttributeError:
+                continue
 
-        # Print the conformations to a PDB file
+        # Print the conformations to a PDB file #TODO: Issue that some conformations.pdb files give valence errors....why does deleting the first conformation work?
         print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(save_dir, "conformations.pdb"), "w+"))

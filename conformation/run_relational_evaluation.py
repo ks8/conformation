@@ -14,7 +14,6 @@ from tqdm import tqdm, trange
 from conformation.dataloader import DataLoader
 from conformation.dataset import GraphDataset
 from conformation.relational import RelationalNetwork
-from conformation.utils import param_count
 
 
 class Args(Tap):
@@ -50,7 +49,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
     # Set up logger
     debug, info = logger.debug, logger.info
 
-    debug(args)
+    debug(pformat(vars(args)))
 
     args.cuda = torch.cuda.is_available()
 
@@ -64,12 +63,15 @@ def run_relational_training(args: Args, logger: Logger) -> None:
     test_data = GraphDataset(test_metadata)
 
     train_data_length, val_data_length, test_data_length = len(train_data), len(val_data), len(test_data)
-    debug(f'train size = {train_data_length:,} | val size = {val_data_length:,} | test size = {test_data_length:,}'
-          )
+    debug('train size = {:,} | val size = {:,} | test size = {:,}'.format(
+        train_data_length,
+        val_data_length,
+        test_data_length)
+    )
 
     # Convert to iterators
     train_data = DataLoader(train_data, args.batch_size)
-    # val_data = DataLoader(val_data, args.batch_size)
+    val_data = DataLoader(val_data, args.batch_size)
     test_data = DataLoader(test_data, args.batch_size)
 
     # Load/build model
@@ -88,9 +90,6 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         debug('Building model')
         model = RelationalNetwork(args.hidden_size, args.num_layers, args.num_edge_features, args.num_vertex_features,
                                   args.final_linear_size)
-
-    debug(model)
-    debug('Number of parameters = {:,}'.format(param_count(model)))
 
     if args.cuda:
         print('Moving model to cuda')
@@ -132,18 +131,3 @@ def run_relational_training(args: Args, logger: Logger) -> None:
             'state_dict': model.state_dict()
         }
         torch.save(state, os.path.join(args.save_dir, "checkpoints", 'model-' + str(epoch) + '.pt'))
-
-    with torch.no_grad():
-        loss_sum, batch_count = 0, 0
-        model.eval()
-        for batch in tqdm(test_data, total=len(test_data)):
-            batch.x = batch.x.cuda()
-            batch.edge_attr = batch.edge_attr.cuda()
-            targets = batch.y.unsqueeze(1).cuda()
-            preds = model(batch)
-            loss = loss_func(preds, targets)
-            loss = loss.sum() / batch.num_graphs
-            loss_sum += loss.item()
-            batch_count += 1
-        loss_avg = loss_sum / batch_count
-        debug("Test loss avg = {:.4e}".format(loss_avg))

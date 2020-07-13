@@ -26,6 +26,7 @@ class Args(Tap):
     max_samples: int = 2000  # Max # samples used for evaluation
     num_dihedral_bins: int = 1000  # Number of histogram bins used for dihedral angle distribution
     out: str  # Path to output text file
+    proximity_bonding: bool = True  # Proximity bonding flag for MolFromPDBFile
 
 
 def load_dist_matrices(data_dir: str) -> np.ndarray:
@@ -78,8 +79,8 @@ def evaluate(args: Args) -> None:
     distance_vectors_2 = load_dist_matrices(args.distmat_dir_2)
 
     # Load conformations
-    m1 = AllChem.MolFromPDBFile(args.conf_path_1, removeHs=False)
-    m2 = AllChem.MolFromPDBFile(args.conf_path_2, removeHs=False)
+    m1 = AllChem.MolFromPDBFile(args.conf_path_1, removeHs=False, proximityBonding=args.proximity_bonding)
+    m2 = AllChem.MolFromPDBFile(args.conf_path_2, removeHs=False, proximityBonding=args.proximity_bonding)
     conformations_1 = np.array(list(m1.GetConformers()))
     conformations_2 = np.array(list(m2.GetConformers()))
 

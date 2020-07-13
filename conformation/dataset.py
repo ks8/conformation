@@ -40,18 +40,19 @@ class GraphDataset(Dataset):
     Dataset class for loading molecular graphs and pairwise distance targets.
     """
 
-    def __init__(self, metadata: List[Dict[str, str]], max_atomic_num: int = 118, bond_types: List = None):
+    def __init__(self, metadata: List[Dict[str, str]], atom_types: List[int] = None, bond_types: List[float] = None):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
-        :param max_atomic_num: Maximum atomic number in the dataset.
-        :param bond_types: List of bond types as floats.
+        :param atom_types: List of allowed atomic numbers.
+        :param bond_types: List of allowed bond types.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
             self.bond_types = [0., 1., 1.5, 2., 3.]
+        if atom_types is None:
+            self.atom_types = [1, 6, 7, 8, 9]
         self.metadata = metadata
-        self.max_atomic_num = max_atomic_num
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -99,9 +100,16 @@ class GraphDataset(Dataset):
         data.edge_attr = torch.tensor(edge_attr, dtype=torch.float)
 
         # Vertex features: one-hot representation of atomic number
-        one_hot_vertex_features = np.zeros((self.max_atomic_num, self.max_atomic_num))
+        # Create one-hot encoding
+        one_hot_vertex_features = np.zeros((len(self.atom_types), len(self.atom_types)))
         np.fill_diagonal(one_hot_vertex_features, 1.)
-        one_hot_features = np.array([one_hot_vertex_features[atom.GetAtomicNum() - 1] for atom in mol.GetAtoms()])
+        atom_to_one_hot = dict()
+        for i in range(len(self.atom_types)):
+            atom_to_one_hot[self.atom_types[i]] = one_hot_vertex_features[i]
+
+        # one_hot_vertex_features = np.zeros((self.max_atomic_num, self.max_atomic_num))
+        # np.fill_diagonal(one_hot_vertex_features, 1.)
+        one_hot_features = np.array([atom_to_one_hot[atom.GetAtomicNum()] for atom in mol.GetAtoms()])
         data.x = torch.tensor(one_hot_features, dtype=torch.float)
 
         # Target: 1-D tensor representing average inter-atomic distance for each edge

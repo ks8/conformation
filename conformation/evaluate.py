@@ -27,6 +27,7 @@ class Args(Tap):
     num_dihedral_bins: int = 1000  # Number of histogram bins used for dihedral angle distribution
     out: str  # Path to output text file
     proximity_bonding: bool = True  # Proximity bonding flag for MolFromPDBFile
+    num_trials: int = 5  # Number of times to compute metrics for mean/std calculation
 
 
 def load_dist_matrices(data_dir: str) -> np.ndarray:
@@ -87,50 +88,58 @@ def evaluate(args: Args) -> None:
     # Get num atoms
     num_atoms = m1.GetNumAtoms()
 
-    # Random sampling
-    samples_1 = np.random.randint(0, len(distance_vectors_1), args.max_samples)
-    samples_2 = np.random.randint(0, len(distance_vectors_2), args.max_samples)
+    corr_coef = []
+    optimal = []
+    kl_div = []
 
-    distance_vectors_1 = distance_vectors_1[samples_1, :]
-    distance_vectors_2 = distance_vectors_2[samples_2, :]
+    for _ in range(args.num_trials):
+        # Random sampling
+        samples_1 = np.random.randint(0, len(distance_vectors_1), args.max_samples)
+        samples_2 = np.random.randint(0, len(distance_vectors_2), args.max_samples)
 
-    conformations_1 = conformations_1[samples_1]
-    conformations_2 = conformations_2[samples_2]
+        distance_vectors_1 = distance_vectors_1[samples_1, :]
+        distance_vectors_2 = distance_vectors_2[samples_2, :]
 
-    # Compute Euclidean distance between pairwise correlation coefficient vectors
-    corr_coef_1 = []
-    corr_coef_2 = []
-    for m, n in itertools.combinations(list(np.arange(distance_vectors_1.shape[1])), 2):
-        corr_coef_1.append(np.corrcoef(distance_vectors_1[:, m], distance_vectors_1[:, n])[0][1])
-        corr_coef_2.append(np.corrcoef(distance_vectors_2[:, m], distance_vectors_2[:, n])[0][1])
-    corr_coef_1 = np.array(corr_coef_1)
-    corr_coef_2 = np.array(corr_coef_2)
+        conformations_1 = conformations_1[samples_1]
+        conformations_2 = conformations_2[samples_2]
 
-    # Compute Optimal Transport cost (EMD)
-    m = ot.dist(distance_vectors_1, distance_vectors_2)
-    a = np.ones(len(distance_vectors_1))/float(len(distance_vectors_1))
-    b = a
-    g0 = ot.emd(a, b, m)
-    emd = (g0*m).sum()
+        # Compute Euclidean distance between pairwise correlation coefficient vectors
+        corr_coef_1 = []
+        corr_coef_2 = []
+        for m, n in itertools.combinations(list(np.arange(distance_vectors_1.shape[1])), 2):
+            corr_coef_1.append(np.corrcoef(distance_vectors_1[:, m], distance_vectors_1[:, n])[0][1])
+            corr_coef_2.append(np.corrcoef(distance_vectors_2[:, m], distance_vectors_2[:, n])[0][1])
+        corr_coef_1 = np.array(corr_coef_1)
+        corr_coef_2 = np.array(corr_coef_2)
+        corr_coef.append(scipy.spatial.distance.euclidean(corr_coef_1, corr_coef_2))
 
-    # Compute KL divergence between histograms of dihedral angles computed from all quadruples of atoms
-    # First, compute all 4-combinations
-    dihedral_indices = []
-    for w, x, y, z in itertools.combinations(list(np.arange(num_atoms)), 4):
-        dihedral_indices.append([w, x, y, z])
+        # Compute Optimal Transport cost (EMD)
+        m = ot.dist(distance_vectors_1, distance_vectors_2)
+        a = np.ones(len(distance_vectors_1))/float(len(distance_vectors_1))
+        b = a
+        g0 = ot.emd(a, b, m)
+        emd = (g0*m).sum()
+        optimal.append(emd)
 
-    # Then, compute the histograms
-    dihedral_dist_1 = dihedral_histogram(dihedral_indices, conformations_1, args.num_dihedral_bins)
-    dihedral_dist_2 = dihedral_histogram(dihedral_indices, conformations_2, args.num_dihedral_bins)
+        # Compute KL divergence between histograms of dihedral angles computed from all quadruples of atoms
+        # First, compute all 4-combinations
+        dihedral_indices = []
+        for w, x, y, z in itertools.combinations(list(np.arange(num_atoms)), 4):
+            dihedral_indices.append([w, x, y, z])
+
+        # Then, compute the histograms
+        dihedral_dist_1 = dihedral_histogram(dihedral_indices, conformations_1, args.num_dihedral_bins)
+        dihedral_dist_2 = dihedral_histogram(dihedral_indices, conformations_2, args.num_dihedral_bins)
+        kl_div.append(entropy(dihedral_dist_1, dihedral_dist_2))
 
     # Save results to text file
     with open(args.out + ".txt", "w") as o:
         o.write("corr_coef: ")
-        o.write(str(scipy.spatial.distance.euclidean(corr_coef_1, corr_coef_2)))
+        o.write(str(np.mean(corr_coef)) + " +/- " + str(np.std(corr_coef)))
         o.write("\n")
         o.write("KL: ")
-        o.write(str(entropy(dihedral_dist_1, dihedral_dist_2)))
+        o.write(str(np.mean(kl_div)) + " +/- " + str(np.std(kl_div)))
         o.write("\n")
         o.write("OT cost: ")
-        o.write(str(emd))
+        o.write(str(np.mean(optimal)) + " +/- " + str(np.std(optimal)))
         o.write("\n")

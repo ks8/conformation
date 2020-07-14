@@ -2,7 +2,6 @@
 from logging import Logger
 import json
 import os
-from pprint import pformat
 
 from sklearn.model_selection import train_test_split
 # noinspection PyPackageRequirements
@@ -97,7 +96,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         model = model.cuda()
 
     # Loss func and optimizer
-    loss_func = torch.nn.MSELoss(reduction='none')
+    loss_func = torch.nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=1e-4)
 
     model.train()
@@ -114,7 +113,6 @@ def run_relational_training(args: Args, logger: Logger) -> None:
             # noinspection PyCallingNonCallable
             preds = model(batch)
             loss = loss_func(preds, targets)
-            loss = loss.sum() / batch.num_graphs
             loss_sum += loss.item()
             batch_count += 1
             n_iter += batch.num_graphs
@@ -142,7 +140,6 @@ def run_relational_training(args: Args, logger: Logger) -> None:
             targets = batch.y.unsqueeze(1).cuda()
             preds = model(batch)
             loss = loss_func(preds, targets)
-            loss = loss.sum() / batch.num_graphs
             loss_sum += loss.item()
             batch_count += 1
         loss_avg = loss_sum / batch_count

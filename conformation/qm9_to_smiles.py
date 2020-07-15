@@ -1,4 +1,5 @@
-""" QM9 to SMILES. Dataset from: http://moleculenet.ai/datasets-1, code partially from: https://github.com/nyu-dl/dl4chem-geometry/blob/master/CSD_sdf_to_p.py"""
+""" QM9 to SMILES. Dataset from: http://moleculenet.ai/datasets-1,
+code partially from: https://github.com/nyu-dl/dl4chem-geometry/blob/master/CSD_sdf_to_p.py"""
 import argparse
 from argparse import Namespace
 import os
@@ -6,7 +7,7 @@ import os
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdmolops
 
 
 def qm9_to_smiles(args: Namespace) -> None:
@@ -20,8 +21,8 @@ def qm9_to_smiles(args: Namespace) -> None:
         if counter < args.max_num:
             # noinspection PyBroadException
             try:
-                Chem.rdmolops.AssignAtomChiralTagsFromStructure(mol)
-                Chem.rdmolops.AssignStereochemistry(mol)
+                rdmolops.AssignAtomChiralTagsFromStructure(mol)
+                rdmolops.AssignStereochemistry(mol)
                 AllChem.EmbedMolecule(mol)  # TODO: Why does this sometimes fail?
                 mol.GetConformer()
                 smiles = Chem.MolToSmiles(mol)

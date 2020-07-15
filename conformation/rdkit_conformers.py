@@ -6,7 +6,7 @@ import os
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolTransforms
 
 from conformation.distance_matrix import dist_matrix
 
@@ -34,15 +34,17 @@ def conformers(args: Namespace) -> None:
             f.write("rms: " + str(rms_list[i]))
             f.write('\n')
             if args.dihedral:
-                dihedral = Chem.rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0], args.dihedral_vals[1],
+                dihedral = rdMolTransforms.GetDihedralRad(c, args.dihedral_vals[0], args.dihedral_vals[1],
                                                                args.dihedral_vals[2], args.dihedral_vals[3])
             else:
                 dihedral = "nan"
             f.write("dihedral: " + str(dihedral))
         i += 1
 
-    # Print the conformations to a PDB file
-    print(Chem.rdmolfiles.MolToPDBBlock(m2), file=open(os.path.join(args.out, "conformations.pdb"), "w+"))
+    # Print the conformations to a binary file
+    bin_str = m2.ToBinary()
+    with open(os.path.join(args.out, "conformations.bin"), "wb") as f:
+        f.write(bin_str)
 
 
 def main():

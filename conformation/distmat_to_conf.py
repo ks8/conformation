@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdmolfiles
+from rdkit.Chem import AllChem
 # noinspection PyPackageRequirements
 from tap import Tap
 
@@ -66,5 +66,7 @@ def distmat_to_conf(args: Args) -> None:
             except ValueError:
                 continue
 
-    # Print conformation as PDB file
-    print(rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.save_dir, "conformations.pdb"), "w+"))
+    # Print the conformations to a binary file
+    bin_str = mol.ToBinary()
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
+        b.write(bin_str)

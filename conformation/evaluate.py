@@ -5,7 +5,8 @@ import numpy as np
 import os
 
 import ot
-from rdkit.Chem import AllChem, rdMolTransforms
+from rdkit import Chem
+from rdkit.Chem import rdMolTransforms
 import scipy.spatial
 from scipy.stats import entropy
 # noinspection PyPackageRequirements
@@ -21,12 +22,11 @@ class Args(Tap):
     """
     distmat_dir_1: str  # Path to one directory containing distance matrices
     distmat_dir_2: str  # Path to second directory containing distance matrices
-    conf_path_1: str  # Path to one PDB file containing conformations
-    conf_path_2: str  # Path to second PDB file containing conformations
+    conf_path_1: str  # Path to one binary file containing conformations
+    conf_path_2: str  # Path to second binary file containing conformations
     max_samples: int = 2000  # Max # samples used for evaluation
     num_dihedral_bins: int = 1000  # Number of histogram bins used for dihedral angle distribution
     out: str  # Path to output text file
-    proximity_bonding: bool = True  # Proximity bonding flag for MolFromPDBFile
     num_trials: int = 5  # Number of times to compute metrics for mean/std calculation
 
 
@@ -44,7 +44,7 @@ def load_dist_matrices(data_dir: str) -> np.ndarray:
     return np.array(distance_vectors)
 
 
-def dihedral_histogram(dihedral_indices: List, conformations: np.ndarray, num_dihedral_bins: int) -> np.ndarray:
+def dihedral_histogram(dihedral_indices: List, conformations: np.ndarray, num_dihedral_bins: int) -> List:
     """
     Compute histogram of all dihedral angles for a set of conformations.
     :param dihedral_indices: Indices for groups of atoms that define a dihedral angle.
@@ -52,20 +52,28 @@ def dihedral_histogram(dihedral_indices: List, conformations: np.ndarray, num_di
     :param num_dihedral_bins: Number of histogram bins.
     :return: Histogram (discrete probability density).
     """
-    dihedral_vals = []
+    dihedral_vals = dict()
     for c in conformations:
         for i in range(len(dihedral_indices)):
             # Compute dihedral angle in radians.
-            dihedral_vals.append(rdMolTransforms.GetDihedralRad(c, dihedral_indices[i][0].item(),
-                                                                dihedral_indices[i][1].item(),
-                                                                dihedral_indices[i][2].item(),
-                                                                dihedral_indices[i][3].item()))
-    dihedral_vals = np.array(dihedral_vals)
-    histogram = np.histogram(dihedral_vals, bins=[-math.pi + i*(2.*math.pi/float(num_dihedral_bins))
-                                                  for i in range(num_dihedral_bins + 1)], density=True)[0]
+            indices = (dihedral_indices[i][0].item(), dihedral_indices[i][1].item(), dihedral_indices[i][2].item(),
+                       dihedral_indices[i][3].item())
+            angle = rdMolTransforms.GetDihedralRad(c, indices[0], indices[1], indices[2], indices[3])
+            if indices in dihedral_vals:
+                dihedral_vals[indices].append(angle)
+            else:
+                dihedral_vals[indices] = [angle]
 
-    # Replace 0 values to avoid dividing by infinity
-    return np.where(histogram == 0, 1e-10, histogram)
+    histograms = []
+    for i in dihedral_vals:
+        group_vals = np.array(dihedral_vals[i])
+        group_hist = np.histogram(group_vals, bins=[-math.pi + i*(2.*math.pi/float(num_dihedral_bins))
+                                                    for i in range(num_dihedral_bins + 1)], density=True)[0]
+        # Replace 0 values to avoid dividing by infinity
+        group_hist = np.where(group_hist == 0, 1e-10, group_hist)
+        histograms.append(group_hist)
+
+    return histograms
 
 
 def evaluate(args: Args) -> None:
@@ -80,8 +88,9 @@ def evaluate(args: Args) -> None:
     distance_vectors_2 = load_dist_matrices(args.distmat_dir_2)
 
     # Load conformations
-    m1 = AllChem.MolFromPDBFile(args.conf_path_1, removeHs=False, proximityBonding=args.proximity_bonding)
-    m2 = AllChem.MolFromPDBFile(args.conf_path_2, removeHs=False, proximityBonding=args.proximity_bonding)
+    m1 = Chem.Mol(open(args.conf_path_1, "rb").read())
+    m2 = Chem.Mol(open(args.conf_path_2, "rb").read())
+
     conformations_1 = np.array(list(m1.GetConformers()))
     conformations_2 = np.array(list(m2.GetConformers()))
 
@@ -130,7 +139,12 @@ def evaluate(args: Args) -> None:
         # Then, compute the histograms
         dihedral_dist_1 = dihedral_histogram(dihedral_indices, conformations_1, args.num_dihedral_bins)
         dihedral_dist_2 = dihedral_histogram(dihedral_indices, conformations_2, args.num_dihedral_bins)
-        kl_div.append(entropy(dihedral_dist_1, dihedral_dist_2))
+
+        total_kl = 0
+        for i in range(len(dihedral_dist_1)):
+            total_kl += entropy(dihedral_dist_1[i], dihedral_dist_2[i])
+
+        kl_div.append(total_kl/float(len(dihedral_dist_1)))
 
     # Save results to text file
     with open(args.out + ".txt", "w") as o:

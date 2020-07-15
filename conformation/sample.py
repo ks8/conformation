@@ -4,9 +4,8 @@ import numpy as np
 import os
 from typing import List
 
-import rdkit
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolTransforms
 import torch
 
 from conformation.flows import NormalizingFlowModel
@@ -71,11 +70,6 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                 # Test that the conformation is valid
                 c = tmp.GetConformer()
 
-                # Try saving the molecule and reloading
-                print(Chem.rdmolfiles.MolToPDBBlock(tmp), file=open(os.path.join(save_dir, "test.pdb"), "w+"))
-                test_mol = AllChem.MolFromPDBFile(os.path.join(save_dir, "test.pdb"), removeHs=False)
-                test_mol.GetConformer()
-
                 # Set the conformer Id and increment the conformation counter
                 c.SetId(counter)
                 counter += 1
@@ -94,8 +88,8 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
                     o.write("rms: " + "nan")
                     o.write('\n')
                     if dihedral:
-                        dihedral_val = Chem.rdMolTransforms.GetDihedralRad(c, dihedral_vals[0], dihedral_vals[1],
-                                                                           dihedral_vals[2], dihedral_vals[3])
+                        dihedral_val = rdMolTransforms.GetDihedralRad(c, dihedral_vals[0], dihedral_vals[1],
+                                                                      dihedral_vals[2], dihedral_vals[3])
                     else:
                         dihedral_val = "nan"
                     o.write("dihedral: " + str(dihedral_val))
@@ -105,5 +99,6 @@ def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: i
             except AttributeError:
                 continue
 
-        # Print the conformations to a PDB file #TODO: Issue that some conformations.pdb files give valence errors....why does deleting the first conformation work?
-        print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(save_dir, "conformations.pdb"), "w+"))
+        bin_str = mol.ToBinary()
+        with open(os.path.join(save_dir, "conformations.bin"), "wb") as f:
+            f.write(bin_str)

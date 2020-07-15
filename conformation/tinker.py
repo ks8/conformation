@@ -37,7 +37,7 @@ def tinker_md(args: Namespace) -> None:
             m2 = Chem.AddHs(m)
             _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_starts)
             _ = AllChem.MMFFOptimizeMoleculeConfs(m2)
-            print(rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
+            print(rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))  # TODO: perhaps generate via openbabel
 
             # Convert PDB file to SDF file and remove PDB file
             os.system("obabel -ipdb " + molecule_name + " -osdf -O " + sdf_name)
@@ -148,8 +148,10 @@ def tinker_md(args: Namespace) -> None:
                 except FileNotFoundError:
                     continue
 
-            # Print the conformations to a PDB file
-            print(Chem.rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.out, "conformations.pdb"), "w+"))
+            # Print the conformations to a binary file
+            bin_str = mol.ToBinary()
+            with open(os.path.join(args.out, "conformations.bin"), "wb") as b:
+                b.write(bin_str)
 
 
 def main():

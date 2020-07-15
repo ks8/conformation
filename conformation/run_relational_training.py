@@ -76,8 +76,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         debug('Loading model from {}'.format(args.checkpoint_path))
         # Load model and args
         state = torch.load(args.checkpoint_path, map_location=lambda storage, loc: storage)
-        loaded_args = Args()
-        loaded_args.from_dict(state['args'])
+        loaded_args = Args().from_dict(state['args'])
         loaded_state_dict = state['state_dict']
 
         model = RelationalNetwork(loaded_args.hidden_size, loaded_args.num_layers, loaded_args.num_edge_features,

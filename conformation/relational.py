@@ -10,7 +10,7 @@ class RelationalNetwork(torch.nn.Module):
     """ Relational network definition """
 
     def __init__(self, hidden_size=256, num_layers=32, num_edge_features=None, num_vertex_features=None,
-                 final_linear_size=1024):
+                 final_linear_size=1024, cnf=False):
         super(RelationalNetwork, self).__init__()
         self.hidden_size = hidden_size  # Internal feature size
         self.num_layers = num_layers  # Number of relational layers
@@ -33,6 +33,7 @@ class RelationalNetwork(torch.nn.Module):
             [torch.nn.GRU(self.hidden_size, self.hidden_size) for _ in range(self.num_layers)])  # GRU cells
         self.final_linear_layer = torch.nn.Linear(self.hidden_size, self.final_linear_size)  # Final linear layer
         self.output_layer = torch.nn.Linear(self.final_linear_size, 1)  # Output layer
+        self.cnf = cnf  # Whether or not we are using this for a conditional normalizing flow
 
     def forward(self, batch):
         """
@@ -70,4 +71,7 @@ class RelationalNetwork(torch.nn.Module):
         e_ij_final = self.final_linear_layer(e_ij_in)  # Compute final linear layer
         preds = self.output_layer(e_ij_final)  # Output layer
 
-        return preds
+        if self.cnf:
+            return e_ij_in
+        else:
+            return preds

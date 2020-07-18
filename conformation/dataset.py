@@ -1,6 +1,6 @@
 """ PyTorch dataset classes for atomic pairwise distance matrix data. """
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from rdkit import Chem
 from scipy import sparse
@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 
 from conformation.data_pytorch import Data
 from conformation.distance_matrix import distmat_to_vec
+from conformation.relational import RelationalNetwork
 
 
 class MolDataset(Dataset):
@@ -40,7 +41,8 @@ class GraphDataset(Dataset):
     Dataset class for loading molecular graphs and pairwise distance targets.
     """
 
-    def __init__(self, metadata: List[Dict[str, str]], atom_types: List[int] = None, bond_types: List[float] = None):
+    def __init__(self, metadata: List[Dict[str, str]], atom_types: List[int] = None, bond_types: List[float] = None,
+                 target: bool = True):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
@@ -53,6 +55,7 @@ class GraphDataset(Dataset):
         if atom_types is None:
             self.atom_types = [1, 6, 7, 8, 9]
         self.metadata = metadata
+        self.target = target
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -112,14 +115,53 @@ class GraphDataset(Dataset):
         one_hot_features = np.array([atom_to_one_hot[atom.GetAtomicNum()] for atom in mol.GetAtoms()])
         data.x = torch.tensor(one_hot_features, dtype=torch.float)
 
-        # Target: 1-D tensor representing average inter-atomic distance for each edge
-        target = np.loadtxt(self.metadata[idx]['target'])
-        data.y = torch.tensor(target, dtype=torch.float)
+        if self.target:
+            # Target: 1-D tensor representing average inter-atomic distance for each edge
+            target = np.loadtxt(self.metadata[idx]['target'])
+            data.y = torch.tensor(target, dtype=torch.float)
 
         # # Unique ID
         # data.uid = self.metadata[idx]['smiles']  # Unique id
 
         return data
+
+    def __repr__(self) -> str:
+        return '{}({})'.format(self.__class__.__name__, len(self))
+
+
+class CNFDataset(Dataset):
+    """
+    Dataset class for loading atomic pairwise distance information for molecules.
+    """
+
+    def __init__(self, metadata: List[Dict[str, str]], padding_dim: int, condition_dim: int = 256):
+        super(Dataset, self).__init__()
+        self.metadata = metadata
+        self.padding_dim = padding_dim
+        self.condition_dim = condition_dim
+
+    def __len__(self) -> int:
+        return len(self.metadata)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        _, data = distmat_to_vec(self.metadata[idx]['path'])
+        dist_vec = torch.from_numpy(data)
+        dist_vec = dist_vec.type(torch.float32)
+
+        condition = np.load(self.metadata[idx]['condition'])
+        condition = torch.from_numpy(condition)
+        condition = condition.type(torch.float32)
+        padding = torch.zeros([self.padding_dim, self.condition_dim])
+        padding[0:condition.shape[0], :] = condition
+        condition = padding
+
+        num_dist = torch.tensor(dist_vec.shape[0])
+
+        padding = torch.zeros(self.padding_dim)
+        padding[:dist_vec.shape[0]] = dist_vec
+        dist_vec = padding
+
+        return dist_vec, condition, num_dist
 
     def __repr__(self) -> str:
         return '{}({})'.format(self.__class__.__name__, len(self))

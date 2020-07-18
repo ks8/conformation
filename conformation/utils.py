@@ -11,6 +11,16 @@ from conformation.flows import NormalizingFlowModel
 from conformation.model import build_model
 
 
+def base_dist_func(u: torch.Tensor, sig: torch.Tensor) -> MultivariateNormal:
+    """
+    Function to return a MultivariateNormal function with specified mean and covariance.
+    :param u: Mean tensor.
+    :param sig: Covariance tensor.
+    :return: MultivariateNormal function.
+    """
+    return MultivariateNormal(u, sig)
+
+
 def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: MultivariateNormal) -> torch.Tensor:
     """
     Loss function that computes the mean log probability of a training example by computing the log probability of its
@@ -22,6 +32,31 @@ def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: Mul
     """
 
     return -(base_dist.log_prob(z) - sum(log_jacobians)).mean()
+
+
+def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor) -> torch.Tensor:
+    """
+    Loss function that computes the mean log probability of a training example by computing the log probability of its
+    corresponding latent variable and the sum of the log abs det jacobians of the normalizing flow transformations.
+    :param z: Inverse values.
+    :param log_jacobians: Log abs det jacobians.
+    :param means: Base distribution means.
+    :return: Average loss.
+    """
+    cuda = torch.cuda.is_available()
+    if cuda:
+        device = torch.device(0)
+    else:
+        device = torch.device('cpu')
+
+    base_dist_list = []
+    for i in range(len(means)):
+        base_dist_list.append(base_dist_func(means[i], torch.eye(means[i].shape[0], device=device)))
+
+    base_log_probs = torch.zeros(len(z), device=device)
+    for i in range(len(z)):
+        base_log_probs[i] = base_dist_list[i].log_prob(z[i])
+    return -(base_log_probs - sum(log_jacobians)).mean()
 
 
 def save_checkpoint(model: NormalizingFlowModel, args: Namespace, path: str) -> None:

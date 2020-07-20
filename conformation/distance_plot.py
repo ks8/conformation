@@ -17,7 +17,7 @@ class Args(Tap):
     System arguments.
     """
     data_dir: str  # Path to directory containing all distance matrices
-    out: str  # Output file name
+    save_path: str  # Output file name
     num_bins: int = 50  # Number of histogram bins
 
 
@@ -44,5 +44,5 @@ def distance_plot(args: Args):
         plt.title(str(labels[i][0]) + "-" + str(labels[i][1]) + " Distances")
         plt.ylabel("Frequency")
         plt.xlabel("Distance ($\AA$)")
-        plt.savefig(args.out + "-" + str(labels[i][0]) + "-" + str(labels[i][1]) + "-distances.png")
+        plt.savefig(args.save_path + "-" + str(labels[i][0]) + "-" + str(labels[i][1]) + "-distances.png")
         plt.clf()

@@ -26,7 +26,7 @@ class Args(Tap):
     conf_path_2: str  # Path to second binary file containing conformations
     max_samples: int = 2000  # Max # samples used for evaluation
     num_dihedral_bins: int = 1000  # Number of histogram bins used for dihedral angle distribution
-    out: str  # Path to output text file
+    save_path: str  # Path to output text file
     num_trials: int = 5  # Number of times to compute metrics for mean/std calculation
 
 
@@ -76,7 +76,7 @@ def dihedral_histogram(dihedral_indices: List, conformations: np.ndarray, num_di
     return histograms
 
 
-def evaluate(args: Args) -> None:
+def evaluate_distributions(args: Args) -> None:
     """
     Compute all pairwise correlation coefficients across columns of a numpy array.
     :param args: System arguments.
@@ -88,7 +88,9 @@ def evaluate(args: Args) -> None:
     distance_vectors_2 = load_dist_matrices(args.distmat_dir_2)
 
     # Load conformations
+    # noinspection PyUnresolvedReferences
     m1 = Chem.Mol(open(args.conf_path_1, "rb").read())
+    # noinspection PyUnresolvedReferences
     m2 = Chem.Mol(open(args.conf_path_2, "rb").read())
 
     conformations_1 = np.array(list(m1.GetConformers()))
@@ -147,7 +149,7 @@ def evaluate(args: Args) -> None:
         kl_div.append(total_kl/float(len(dihedral_dist_1)))
 
     # Save results to text file
-    with open(args.out + ".txt", "w") as o:
+    with open(args.save_path + ".txt", "w") as o:
         o.write("corr_coef: ")
         o.write(str(np.mean(corr_coef)) + " +/- " + str(np.std(corr_coef)))
         o.write("\n")

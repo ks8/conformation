@@ -1,5 +1,6 @@
 """ Run neural network sampling. """
-from conformation.run_sampling import main
+from conformation.run_sampling import run_sampling, Args
 
 if __name__ == '__main__':
-    main()
+    args = Args().parse_args()
+    run_sampling(args)

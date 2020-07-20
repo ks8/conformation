@@ -8,10 +8,10 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 import torch
 
-from conformation.flows import CNFFlowModel
+from conformation.flows import NormalizingFlowModel
 
 
-def sample(model: CNFFlowModel, smiles: str, save_dir: str, num_atoms: int, offset: float,
+def sample(model: NormalizingFlowModel, smiles: str, save_dir: str, num_atoms: int, offset: float,
            num_layers: int, num_samples: int, dihedral: bool, dihedral_vals: List[int], condition_path: str) -> None:
     """
     Generate samples from trained normalizing flow.
@@ -33,6 +33,11 @@ def sample(model: CNFFlowModel, smiles: str, save_dir: str, num_atoms: int, offs
     # Conformation counter
     counter = 0
 
+    if torch.cuda.is_available():
+        device = torch.device(0)
+    else:
+        device = torch.device('cpu')
+
     with torch.no_grad():
         model.eval()
         num_atoms = num_atoms
@@ -47,7 +52,7 @@ def sample(model: CNFFlowModel, smiles: str, save_dir: str, num_atoms: int, offs
         tmp = Chem.AddHs(tmp)
 
         for j in range(num_samples):
-            gen_sample = model.sample(num_layers, condition_path)
+            gen_sample = model.sample(num_layers, condition_path, device)
             distmat = np.zeros([num_atoms, num_atoms])
             boundsmat = np.zeros([num_atoms, num_atoms])
             indices = []

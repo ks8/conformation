@@ -1,24 +1,12 @@
 """ Neural network auxiliary functions. """
-from argparse import Namespace
-
 import torch
 import torch.nn as nn
 # noinspection PyUnresolvedReferences
 from torch.distributions.multivariate_normal import MultivariateNormal
 from typing import List
 
-from conformation.flows import NormalizingFlowModel
 from conformation.model import build_model
-
-
-def base_dist_func(u: torch.Tensor, sig: torch.Tensor) -> MultivariateNormal:
-    """
-    Function to return a MultivariateNormal function with specified mean and covariance.
-    :param u: Mean tensor.
-    :param sig: Covariance tensor.
-    :return: MultivariateNormal function.
-    """
-    return MultivariateNormal(u, sig)
+from conformation.train_args import Args
 
 
 def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: MultivariateNormal) -> torch.Tensor:
@@ -51,7 +39,7 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
 
     base_dist_list = []
     for i in range(len(means)):
-        base_dist_list.append(base_dist_func(means[i], torch.eye(means[i].shape[0], device=device)))
+        base_dist_list.append(MultivariateNormal(means[i], torch.eye(means[i].shape[0], device=device)))
 
     base_log_probs = torch.zeros(len(z), device=device)
     for i in range(len(z)):
@@ -59,7 +47,7 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
     return -(base_log_probs - sum(log_jacobians)).mean()
 
 
-def save_checkpoint(model: NormalizingFlowModel, args: Namespace, path: str) -> None:
+def save_checkpoint(model: nn.Module, args: Args, path: str) -> None:
     """
     Saves a model checkpoint.
     :param model: A PyTorch model.
@@ -67,23 +55,23 @@ def save_checkpoint(model: NormalizingFlowModel, args: Namespace, path: str) -> 
     :param path: Path where checkpoint will be saved.
     """
     state = {
-        'args': args,
+        'args': args.as_dict(),
         'state_dict': model.state_dict()
     }
     torch.save(state, path)
 
 
-def load_checkpoint(path: str, save_dir: str, cuda: bool) -> NormalizingFlowModel:
+def load_checkpoint(path: str, cuda: bool) -> nn.Module:
     """
     Loads a model checkpoint.
     :param path: Path where checkpoint is saved.
-    :param save_dir: Directory to save checkpoints.
     :param cuda: Whether to move model to cuda.
     :return: The loaded model.
     """
     # Load model and args
     state = torch.load(path, map_location=lambda storage, loc: storage)
-    args, loaded_state_dict = state['args'], state['state_dict']
+    args = Args().from_dict(state['args'])
+    loaded_state_dict = state['state_dict']
 
     # Update args with current args
     args.cuda = cuda

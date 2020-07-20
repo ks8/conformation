@@ -1,15 +1,14 @@
-""" PyTorch dataset classes for atomic pairwise distance matrix data. """
+""" PyTorch dataset classes for molecular data. """
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 from rdkit import Chem
 from scipy import sparse
 import torch
 from torch.utils.data import Dataset
 
-from conformation.data_pytorch import Data
 from conformation.distance_matrix import distmat_to_vec
-from conformation.relational import RelationalNetwork
+from conformation.graph_data import Data
 
 
 class MolDataset(Dataset):
@@ -35,7 +34,6 @@ class MolDataset(Dataset):
         return '{}({})'.format(self.__class__.__name__, len(self))
 
 
-# Dataset class
 class GraphDataset(Dataset):
     """
     Dataset class for loading molecular graphs and pairwise distance targets.
@@ -48,6 +46,7 @@ class GraphDataset(Dataset):
         :param metadata: Metadata contents.
         :param atom_types: List of allowed atomic numbers.
         :param bond_types: List of allowed bond types.
+        :param target: Whether or not to load target data from metadata into Data() object.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
@@ -61,8 +60,12 @@ class GraphDataset(Dataset):
         return len(self.metadata)
 
     def __getitem__(self, idx) -> Data:
-        """ Output a data object with node features, edge connectivity, and target vector"""
-        data = Data()  # Create data object
+        """
+        Output a data object with node features, edge connectivity, and (optionally) target.
+        :param idx: Which item to load.
+        :return: Data() object.
+        """
+        data = Data()
 
         # Molecule from SMILES string
         smiles = self.metadata[idx]['smiles']  # Read smiles string
@@ -110,18 +113,15 @@ class GraphDataset(Dataset):
         for i in range(len(self.atom_types)):
             atom_to_one_hot[self.atom_types[i]] = one_hot_vertex_features[i]
 
-        # one_hot_vertex_features = np.zeros((self.max_atomic_num, self.max_atomic_num))
-        # np.fill_diagonal(one_hot_vertex_features, 1.)
+        # Add the vertex features as one-hot vectors
         one_hot_features = np.array([atom_to_one_hot[atom.GetAtomicNum()] for atom in mol.GetAtoms()])
         data.x = torch.tensor(one_hot_features, dtype=torch.float)
 
+        # Target
         if self.target:
             # Target: 1-D tensor representing average inter-atomic distance for each edge
             target = np.loadtxt(self.metadata[idx]['target'])
             data.y = torch.tensor(target, dtype=torch.float)
-
-        # # Unique ID
-        # data.uid = self.metadata[idx]['smiles']  # Unique id
 
         return data
 
@@ -131,10 +131,15 @@ class GraphDataset(Dataset):
 
 class CNFDataset(Dataset):
     """
-    Dataset class for loading atomic pairwise distance information for molecules.
+    Dataset class for loading atomic pairwise distance information for molecules for a conditional normalizing flow.
     """
 
-    def __init__(self, metadata: List[Dict[str, str]], padding_dim: int, condition_dim: int = 256):
+    def __init__(self, metadata: List[Dict[str, str]], padding_dim: int = 528, condition_dim: int = 256):
+        """
+        :param metadata: Metadata.
+        :param padding_dim: Padding size for all distance vectors and conditions.
+        :param condition_dim: Dimensionality of the hidden size for the condition matrix.
+        """
         super(Dataset, self).__init__()
         self.metadata = metadata
         self.padding_dim = padding_dim
@@ -144,22 +149,32 @@ class CNFDataset(Dataset):
         return len(self.metadata)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        :param idx: # of data item to retrieve.
+        :return: Padded distance vector, condition matrix, and # of pairwise distances in the molecule.
+        """
+        # Load the pairwise distance matrix
         _, data = distmat_to_vec(self.metadata[idx]['path'])
         dist_vec = torch.from_numpy(data)
         dist_vec = dist_vec.type(torch.float32)
 
-        condition = np.load(self.metadata[idx]['condition'])
-        condition = torch.from_numpy(condition)
-        condition = condition.type(torch.float32)
-        padding = torch.zeros([self.padding_dim, self.condition_dim])
-        padding[0:condition.shape[0], :] = condition
-        condition = padding
-
+        # Compute the number of pairwise distances before padding
         num_dist = torch.tensor(dist_vec.shape[0])
 
+        # Pad the pairwise distances vector
         padding = torch.zeros(self.padding_dim)
         padding[:dist_vec.shape[0]] = dist_vec
         dist_vec = padding
+
+        # Load the condition matrix
+        condition = np.load(self.metadata[idx]['condition'])
+        condition = torch.from_numpy(condition)
+        condition = condition.type(torch.float32)
+
+        # Pad the condition matrix
+        padding = torch.zeros([self.padding_dim, self.condition_dim])
+        padding[0:condition.shape[0], :] = condition
+        condition = padding
 
         return dist_vec, condition, num_dist
 

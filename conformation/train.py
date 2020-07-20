@@ -1,5 +1,4 @@
 """ Train function to execute training for one epoch. """
-from argparse import Namespace
 from logging import Logger
 from typing import Tuple
 
@@ -11,10 +10,11 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from conformation.flows import NormalizingFlowModel
+from conformation.train_args import Args
 from conformation.utils import loss_func
 
 
-def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Namespace, logger: Logger,
+def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Args, logger: Logger,
           n_iter: int) -> Tuple[int, float]:
     """
     Function for training a normalizing flow model.

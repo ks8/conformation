@@ -1,4 +1,4 @@
-""" Generate a molecular conformation from an atomic pairwise distance matrix. """
+""" Generate molecular conformations from atomic pairwise distance matrices. """
 import itertools
 import numpy as np
 import os
@@ -21,11 +21,10 @@ class Args(Tap):
 
 def distmat_to_conf(args: Args) -> None:
     """
-    Generate a molecular conformation from an atomic pairwise distance matrix.
+    Generate molecular conformations from atomic pairwise distance matrices.
     :param args: System arguments.
     :return: None.
     """
-
     os.makedirs(args.save_dir)
 
     # Conformation counter
@@ -43,7 +42,7 @@ def distmat_to_conf(args: Args) -> None:
     for _, _, files in os.walk(args.data_dir):
         for f in files:
             # Use the pairwise distance matrix to set the ETKDG bounds matrix
-            dist_mat = np.loadtxt(os.path.join(args.data_dir, f))
+            dist_mat = np.load(os.path.join(args.data_dir, f))
             num_atoms = dist_mat.shape[0]
             for i, j in itertools.combinations(np.arange(num_atoms), 2):
                 dist_mat[i][j] += args.offset

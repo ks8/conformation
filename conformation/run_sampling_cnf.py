@@ -20,6 +20,11 @@ def run_sampling(args: Namespace) -> None:
 
     print(pformat(vars(args)))
 
+    if torch.cuda.is_available():
+        device = torch.device(0)
+    else:
+        device = torch.device('cpu')
+
     # Load model
     if args.checkpoint_path is not None:
         print('Loading model from {}'.format(args.checkpoint_path))

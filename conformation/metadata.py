@@ -11,7 +11,7 @@ from scipy import sparse
 from tap import Tap
 import torch
 
-from conformation.data_pytorch import Data
+from conformation.graph_data import Data
 from conformation.relational import RelationalNetwork
 from conformation.run_relational_training import Args as graph_Args
 
@@ -60,7 +60,7 @@ def metadata(args: Args) -> None:
         for f in files:
             path = os.path.join(args.data_dir, f)
             if args.mpnn:
-                molecule_name = f[f.find("qm9"):f.find(".")]
+                molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
                     smiles = tmp.readlines()[0].split()[0]
                 data.append({'smiles': smiles, 'target': path})

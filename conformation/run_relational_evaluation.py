@@ -1,17 +1,13 @@
 """ Run relational network training. """
 from logging import Logger
 import json
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import os
 
 from sklearn.model_selection import train_test_split
 # noinspection PyPackageRequirements
 from tap import Tap
 import torch
-from torch.optim import Adam
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 from conformation.dataloader import DataLoader
 from conformation.dataset import GraphDataset
@@ -68,9 +64,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
         test_data_length)
     )
 
-    # Convert to iterators
-    train_data = DataLoader(train_data, args.batch_size)
-    val_data = DataLoader(val_data, args.batch_size)
+    # Convert to iterator
     test_data = DataLoader(test_data, args.batch_size)
 
     # Load/build model
@@ -84,6 +78,9 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     model = RelationalNetwork(loaded_args.hidden_size, loaded_args.num_layers, loaded_args.num_edge_features,
                               loaded_args.num_vertex_features, loaded_args.final_linear_size)
     model.load_state_dict(loaded_state_dict)
+
+    debug(model)
+    debug('Number of parameters = {:,}'.format(param_count(model)))
 
     if args.cuda:
         print('Moving model to cuda')

@@ -1,14 +1,31 @@
 """ Plot distributions of conformation properties. """
-import argparse
-from argparse import Namespace
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import math
 import os
 
+# noinspection PyPackageRequirements
+from tap import Tap
 
-def energy_plot(args: Namespace) -> None:
+
+class Args(Tap):
+    """
+    System arguments.
+    """
+    data_dir: str = None  # Path to directory containing input files
+    num_energy_bins: int = 40  # Number of energy histogram bins
+    num_rms_bins: int = 20  # Number of dihedral histogram bins
+    num_dihedral_bins: int = 20  # Number of dihedral histogram bins
+    save_prefix: str = None  # File name for plot image
+    upper_energy_bound: float = 5.0  # Upper bound for molecule energy
+    lower_energy_bound: float = -5.0  # Lower bound for molecule energy
+    energy: bool = False  # Use when plotting energy values
+    rms: bool = False  # Use when plotting rms values
+    dihedral: bool = False  # Use when plotting dihedral angle values
+
+
+def properties_plot(args: Args) -> None:
     """
     Plot histograms of energies, RMS, dihedrals for molecular conformations.
     :param args: Argparse arguments.
@@ -17,10 +34,10 @@ def energy_plot(args: Namespace) -> None:
     energies = []
     rms_list = []
     dihedral_list = []
-    for _, _, files in os.walk(args.input):
+    for _, _, files in os.walk(args.data_dir):
         for f in files:
             if f[:10] == "energy-rms":
-                file = open(os.path.join(args.input, f))
+                file = open(os.path.join(args.data_dir, f))
                 contents = file.readlines()
                 energy = float(contents[0].split()[1])
                 rms = float(contents[1].split()[1])
@@ -35,7 +52,7 @@ def energy_plot(args: Namespace) -> None:
         plt.title("Ethane ETKDG Energies")
         plt.ylabel("Frequency")
         plt.xlabel("Energy (kcal/mol)")
-        plt.savefig(args.out + "-energies.png")
+        plt.savefig(args.save_prefix + "-energies.png")
         plt.clf()
 
     if args.rms:
@@ -43,7 +60,7 @@ def energy_plot(args: Namespace) -> None:
         plt.title("Ethane RMS values")
         plt.ylabel("Frequency")
         plt.xlabel("Distance ($\AA$)")
-        plt.savefig(args.out + "-rms.png")
+        plt.savefig(args.save_prefix + "-rms.png")
         plt.clf()
 
     if args.dihedral:
@@ -51,7 +68,7 @@ def energy_plot(args: Namespace) -> None:
         plt.title("Ethane Dihedral Values")
         plt.ylabel("Frequency")
         plt.xlabel("Angle (Degrees)")
-        plt.savefig(args.out + "-dihedral.png")
+        plt.savefig(args.save_prefix + "-dihedral.png")
         plt.clf()
 
     if args.energy and args.dihedral:
@@ -59,36 +76,5 @@ def energy_plot(args: Namespace) -> None:
         plt.title("Ethane Energy vs Dihedral")
         plt.ylabel("Energy (kcal/mol)")
         plt.xlabel("Dihedral Angle (Degrees)")
-        plt.savefig(args.out + "-energy-vs-dihedral.png")
+        plt.savefig(args.save_prefix + "-energy-vs-dihedral.png")
         plt.clf()
-
-
-def main():
-    """
-    Parse arguments and execute file processing
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input', type=str, dest='input', default=None, help='Folder path containing input files')
-    parser.add_argument('--num_energy_bins', type=int, dest='num_energy_bins', default=40,
-                        help='# energy histogram bins')
-    parser.add_argument('--num_rms_bins', type=int, dest='num_rms_bins', default=20, help='# rms histogram bins')
-    parser.add_argument('--num_dihedral_bins', type=int, dest='num_dihedral_bins', default=20,
-                        help='# dihedral histogram bins')
-    parser.add_argument('--out', type=str, dest='out', default=None, help='File name for plot image')
-    parser.add_argument('--upper_energy_bound', type=float, dest='upper_energy_bound', default=5.0,
-                        help='Upper bound for molecule energy')
-    parser.add_argument('--lower_energy_bound', type=float, dest='lower_energy_bound', default=-5.0,
-                        help='Lower bound for molecule energy')
-    parser.add_argument('--energy', action='store_true', default=False,
-                        help='Use when plotting energy values')
-    parser.add_argument('--rms', action='store_true', default=False,
-                        help='Use when plotting rms values')
-    parser.add_argument('--dihedral', action='store_true', default=False,
-                        help='Use when plotting dihedral angle values')
-    args = parser.parse_args()
-
-    energy_plot(args)
-
-
-if __name__ == '__main__':
-    main()

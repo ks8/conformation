@@ -111,7 +111,7 @@ def run_sampling(args: Args) -> None:
                     mol.AddConformer(c)
 
                     # noinspection PyTypeChecker
-                    np.savetxt(os.path.join(args.save_dir, "distmat", "distmat-" + str(counter) + ".txt"), distmat)
+                    np.save(os.path.join(args.save_dir, "distmat", "distmat-" + str(counter)), distmat)
 
                     # Compute properties of the conformation
                     res = AllChem.MMFFOptimizeMoleculeConfs(tmp, maxIters=0)

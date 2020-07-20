@@ -1,20 +1,33 @@
 """ QM9 to SMILES. Dataset from: http://moleculenet.ai/datasets-1,
 code partially from: https://github.com/nyu-dl/dl4chem-geometry/blob/master/CSD_sdf_to_p.py"""
-import argparse
-from argparse import Namespace
 import os
 
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
 # noinspection PyUnresolvedReferences
 from rdkit.Chem import AllChem, rdmolops
+# noinspection PyPackageRequirements
+from tap import Tap
 
 
-def qm9_to_smiles(args: Namespace) -> None:
+class Args(Tap):
+    """
+    System arguments.
+    """
+    data_path: str  # Path to QM9 sdf file
+    save_dir: str  # Path to directory for output files
+    n_min: int = 2  # Minimum number of heavy atoms
+    n_max: int = 20  # Maximum number of heavy atoms
+    max_num: int = 20  # Maximum number of molecules to read
+
+
+def qm9_to_smiles(args: Args) -> None:
     """
 
     :param args:
     """
+    os.makedirs(args.save_dir)
+
     suppl = Chem.SDMolSupplier(args.data_path)
     counter = 0
     for i, mol in enumerate(suppl):
@@ -36,24 +49,3 @@ def qm9_to_smiles(args: Namespace) -> None:
                 continue
         else:
             break
-
-
-def main():
-    """
-    Parse arguments and run run_training function.
-    :return: None.
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--n_min', type=int, dest='n_min', default=2, help='Min # heavy atoms')
-    parser.add_argument('--n_max', type=int, dest='n_max', default=20, help='Max # heavy atoms')
-    parser.add_argument('--max_num', type=int, dest='max_num', default=20, help='Max # molecules to read')
-    parser.add_argument('--data_path', type=str, dest='data_path', default=None, help='Path to QM9 sdf file')
-    parser.add_argument('--save_dir', type=str, dest='save_dir', default=None, help='Directory to save output files')
-    args = parser.parse_args()
-
-    os.makedirs(args.save_dir)
-    qm9_to_smiles(args)
-
-
-if __name__ == '__main__':
-    main()

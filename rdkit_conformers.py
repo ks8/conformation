@@ -1,5 +1,6 @@
 """ Generate conformations using RDKit. """
-from conformation.rdkit_conformers import main
+from conformation.rdkit_conformers import rdkit_conformers, Args
 
 if __name__ == '__main__':
-    main()
+    args = Args().parse_args()
+    rdkit_conformers(args)

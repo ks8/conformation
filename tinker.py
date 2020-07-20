@@ -1,5 +1,6 @@
 """ Run Tinker MD simulations and extract conformations. """
-from conformation.tinker import main
+from conformation.tinker import tinker, Args
 
 if __name__ == '__main__':
-    main()
+    args = Args().parse_args()
+    tinker(args)

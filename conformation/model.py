@@ -39,6 +39,7 @@ def build_model(args: Args) -> NormalizingFlowModel:
     :param args: System parameters.
     :return: nn.Module defining the normalizing flow.
     """
+    # TODO: does torch.device(0) only give one GPU option? Or any options?
     if args.cuda:
         device = torch.device(0)
     else:

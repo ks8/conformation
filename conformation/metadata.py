@@ -1,5 +1,6 @@
 """ Generate metadata. """
 import json
+import pickle
 import os
 import re
 from typing import List
@@ -24,10 +25,10 @@ class Args(Tap):
     save_dir: str  # Path to directory containing output file
     mpnn: bool = False  # Whether or not to produce metadata for graph neural network training
     cnf: bool = False  # Whether or not to produce metadata for conditional normalizing flow training
-    graph_model_path: str = None  # Path to saved graph model
-    smiles_dir: str = None  # Path to directory containing smiles strings (mpnn = True)
-    atom_types: List[int] = [1, 6, 7, 8, 9]  # Graph neural net allowed atom types
-    bond_types: List[float] = [0., 1., 1.5, 2., 3.]  # Graph neural net allowed bond types
+    graph_model_path: str = None  # Path to saved graph model (cnf = True)
+    smiles_dir: str = None  # Path to directory containing smiles strings (mpnn or cnf = True)
+    atom_types: List[int] = [1, 6, 7, 8, 9]  # Graph neural net allowed atom types (cnf = True)
+    bond_types: List[float] = [0., 1., 1.5, 2., 3.]  # Graph neural net allowed bond types (cnf = True)
 
 
 def metadata(args: Args) -> None:
@@ -56,6 +57,8 @@ def metadata(args: Args) -> None:
 
     data = []
     conditional_dict = dict()
+    uid_dict = dict()
+    uid = 0
     for _, _, files in os.walk(args.data_dir):
         for f in files:
             path = os.path.join(args.data_dir, f)
@@ -63,7 +66,9 @@ def metadata(args: Args) -> None:
                 molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
                     smiles = tmp.readlines()[0].split()[0]
-                data.append({'smiles': smiles, 'target': path})
+                data.append({'smiles': smiles, 'target': path, 'uid': uid})
+                uid_dict[uid] = smiles
+                uid += 1
             elif args.cnf:
                 molecule_name = f[[m.end() for m in re.finditer("-", f)][-1]:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
@@ -119,8 +124,6 @@ def metadata(args: Args) -> None:
                     for i in range(len(args.atom_types)):
                         atom_to_one_hot[args.atom_types[i]] = one_hot_vertex_features[i]
 
-                    # one_hot_vertex_features = np.zeros((self.max_atomic_num, self.max_atomic_num))
-                    # np.fill_diagonal(one_hot_vertex_features, 1.)
                     one_hot_features = np.array([atom_to_one_hot[atom.GetAtomicNum()] for atom in mol.GetAtoms()])
                     sample.x = torch.tensor(one_hot_features, dtype=torch.float)
 
@@ -137,5 +140,6 @@ def metadata(args: Args) -> None:
                 data.append({'smiles': smiles, 'path': path, 'condition': conditional_dict[molecule_name]})
             else:
                 data.append({'path': path})
-
+    if len(uid_dict) > 0:
+        pickle.dump(uid_dict, open(os.path.join(args.save_dir, "uid_dict.p"), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
     json.dump(data, open(os.path.join(args.save_dir, args.save_dir + ".json"), "w"), indent=4, sort_keys=True)

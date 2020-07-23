@@ -83,7 +83,7 @@ def run_training(args: Args, logger: Logger) -> None:
     args.cuda = torch.cuda.is_available()
 
     # Set up logger
-    debug, info = logger.debug, logger.info
+    debug, info = logger.debug, logger.info  # TODO: verbose log looks nasty via Tap - fix this
 
     debug(pformat(vars(args)))
 

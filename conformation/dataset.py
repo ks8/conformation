@@ -120,8 +120,11 @@ class GraphDataset(Dataset):
         # Target
         if self.target:
             # Target: 1-D tensor representing average inter-atomic distance for each edge
-            target = np.loadtxt(self.metadata[idx]['target'])
+            target = np.load(self.metadata[idx]['target'])
             data.y = torch.tensor(target, dtype=torch.float)
+
+        # UID
+        data.uid = torch.tensor([int(self.metadata[idx]['uid'])])
 
         return data
 

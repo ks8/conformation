@@ -21,7 +21,7 @@ class Args(Tap):
     conditional: bool = False  # Whether or not to use a conditional normalizing flow
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
     smiles: str = None  # Molecular SMILES string
-    num_atoms: int = 8  # Number of atoms
+    num_atoms: int = 8  # Number of atoms  # TODO: might not be necessary
     num_layers: int = 10  # Number of RealNVP layers
     num_samples: int = 1000  # Number of samples to attempt
     save_dir: str = None  # Save directory

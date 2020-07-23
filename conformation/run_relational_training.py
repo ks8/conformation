@@ -28,7 +28,7 @@ class Args(Tap):
     num_layers: int = 10  # Number of layers
     num_edge_features: int = 6  # Number of edge features
     final_linear_size: int = 1024  # Size of last linear layer
-    num_vertex_features: int = 118  # Number of vertex features
+    num_vertex_features: int = 5  # Number of vertex features
     cuda: bool = False  # Cuda availability
     checkpoint_path: str = None  # Directory of checkpoint to load saved model
     save_dir: str  # Save directory

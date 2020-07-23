@@ -1,4 +1,12 @@
 """ Run relational network training. """
+###
+import itertools
+import matplotlib.pyplot as plt
+import numpy as np
+import pickle
+from rdkit import Chem
+from rdkit.Chem import rdmolops
+###
 from logging import Logger
 import json
 import os
@@ -65,7 +73,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     )
 
     # Convert to iterator
-    test_data = DataLoader(test_data, args.batch_size)
+    test_data = DataLoader(train_data, args.batch_size)
 
     # Load/build model
     debug('Loading model from {}'.format(args.checkpoint_path))
@@ -89,6 +97,13 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     # Loss func and optimizer
     loss_func = torch.nn.MSELoss()
 
+    ###
+    loss_func_aux = torch.nn.MSELoss(reduction='none')
+    losses = []
+    true_distances = []
+    shortest_paths = []
+    uid_dict = pickle.load(open("metadata-qm9-2-nmin-20-nmax-1-RDKitinit-10000-MDsteps/uid_dict.p", "rb"))
+    ###
     with torch.no_grad():
         loss_sum, batch_count = 0, 0
         model.eval()
@@ -98,8 +113,53 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
             targets = batch.y.unsqueeze(1).cuda()
             preds = model(batch)
             loss = loss_func(preds, targets)
+            ###
+            loss_aux = torch.sqrt_(loss_func_aux(preds, targets))
+            loss_aux = loss_aux.cpu().numpy()
+            for i in range(loss_aux.shape[0]):
+                losses.append(loss_aux[i][0])
+            targets_aux = targets.cpu().numpy()
+            for i in range(targets_aux.shape[0]):
+                true_distances.append(targets_aux[i][0])
+            for i in range(batch.uid.shape[0]):
+                uid = batch.uid[i].item()
+                smiles = uid_dict[uid]
+                mol = Chem.MolFromSmiles(smiles)
+                mol = Chem.AddHs(mol)
+                for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                    shortest_paths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))))
+            ###
             loss = torch.sqrt_(loss)
             loss_sum += loss.item()
             batch_count += 1
         loss_avg = loss_sum / batch_count
         debug("Test loss avg = {:.4e}".format(loss_avg))
+
+        ###
+        losses = np.array(losses)
+        true_distances = np.array(true_distances)
+        shortest_paths = np.array(shortest_paths)
+        plt.plot(true_distances, losses, 'bo', markersize=0.5)
+        plt.title("Error vs True Atomic Pairwise Distances")
+        plt.ylabel("|True - Predicted|")
+        plt.xlabel("True")
+        plt.savefig("qm9-2-nmin-20-nmax-100-epochs-10-layers-error-vs-distance-train-set-2")
+        plt.clf()
+        plt.plot(np.log(true_distances), np.log(losses), 'bo', markersize=0.5)
+        plt.title("Error vs True Atomic Pairwise Distances")
+        plt.ylabel("log(|True - Predicted|)")
+        plt.xlabel("log(True)")
+        plt.savefig("qm9-2-nmin-20-nmax-100-epochs-10-layers-error-vs-distance-log-train-set-2")
+        plt.clf()
+        plt.plot(shortest_paths, losses, 'bo', markersize=0.5)
+        plt.title("Error vs Atomic Pairwise Shortest Paths")
+        plt.ylabel("|True - Predicted|")
+        plt.xlabel("Shortest Path")
+        plt.savefig("qm9-2-nmin-20-nmax-100-epochs-10-layers-error-vs-path-train-set-2")
+        plt.clf()
+        plt.plot(np.log(shortest_paths), np.log(losses), 'bo', markersize=0.5)
+        plt.title("Error vs Atomic Pairwise Shortest Paths")
+        plt.ylabel("|True - Predicted|")
+        plt.xlabel("Shortest Path")
+        plt.savefig("qm9-2-nmin-20-nmax-100-epochs-10-layers-error-vs-path-log-train-set-2")
+        ###

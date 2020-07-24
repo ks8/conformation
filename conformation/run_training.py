@@ -42,14 +42,15 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
     loss_sum, iter_count = 0, 0
     for batch in tqdm(data, total=len(data)):
         if args.cuda:
-            if args.conditional:
-                batch = (batch[0].cuda(), batch[1].cuda(), batch[2].cuda())
-            else:
-                batch = batch.cuda()
+            with torch.cuda.device(args.gpu_device):
+                if args.conditional:
+                    batch = (batch[0].cuda(), batch[1].cuda(), batch[2].cuda())
+                else:
+                    batch = batch.cuda()
         model.zero_grad()
         if args.conditional:
             z, log_jacobians, means = model(batch[0], batch[1])
-            loss = loss_func_cnf(z, log_jacobians, means)
+            loss = loss_func_cnf(z, log_jacobians, means, args.gpu_device)
         else:
             z, log_jacobians = model(batch)
             loss = loss_func(z, log_jacobians, model.base_dist)
@@ -85,7 +86,7 @@ def run_training(args: Args, logger: Logger) -> None:
     # Set up logger
     debug, info = logger.debug, logger.info  # TODO: verbose log looks nasty via Tap - fix this
 
-    debug(pformat(vars(args)))
+    debug(args)
 
     # Load datasets
     debug('Loading data')
@@ -105,7 +106,7 @@ def run_training(args: Args, logger: Logger) -> None:
     # Load/build model
     if args.checkpoint_path is not None:
         debug('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda)
+        model = load_checkpoint(args.checkpoint_path, args.cuda, args.gpu_device)
     else:
         debug('Building model')
         model = build_model(args)
@@ -114,8 +115,9 @@ def run_training(args: Args, logger: Logger) -> None:
     debug('Number of parameters = {:,}'.format(param_count(model)))
 
     if args.cuda:
-        debug('Moving model to cuda')
-        model = model.cuda()
+        with torch.cuda.device(args.gpu_device):
+            debug('Moving model to cuda')
+            model = model.cuda()
 
     # Optimizer
     optimizer = Adam(model.parameters(), lr=args.lr)

@@ -41,7 +41,7 @@ def build_model(args: Args) -> NormalizingFlowModel:
     """
     # TODO: does torch.device(0) only give one GPU option? Or any options?
     if args.cuda:
-        device = torch.device(0)
+        device = torch.device(args.gpu_device)
     else:
         device = torch.device('cpu')
 

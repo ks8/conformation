@@ -29,6 +29,8 @@ class Args(Tap):
     dihedral: bool = False  # Use when computing dihedral angle values
     dihedral_vals: List[int] = [2, 0, 1, 5]  # Atom IDs for dihedral
     cuda: bool = False  # Whether or not to use cuda
+    gpu_device: int = 0  # Which GPU to use (0 or 1)
+    random_coords: bool = True  # Whether or not to use random coordinates for EDG algorithm
 
 
 def run_sampling(args: Args) -> None:
@@ -42,20 +44,23 @@ def run_sampling(args: Args) -> None:
     os.makedirs(os.path.join(args.save_dir, "distmat"))
     os.makedirs(os.path.join(args.save_dir, "properties"))
 
+    args.cuda = torch.cuda.is_available()
+
     print(args)
 
     # Load model
     if args.checkpoint_path is not None:
         print('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda)
+        model = load_checkpoint(args.checkpoint_path, args.cuda,args.gpu_device)
 
         print(model)
         print('Number of parameters = {:,}'.format(param_count(model)))
 
         if args.cuda:
-            print('Moving model to cuda')
-            model = model.cuda()
-            device = torch.device(0)
+            with torch.cuda.device(args.gpu_device):
+                print('Moving model to cuda')
+                model = model.cuda()
+            device = torch.device(args.gpu_device)
         else:
             device = torch.device('cpu')
 
@@ -94,6 +99,7 @@ def run_sampling(args: Args) -> None:
 
                 # Set the bounds matrix
                 ps.SetBoundsMat(boundsmat)
+                ps.useRandomCoords = args.random_coords
 
                 # Create a conformation from the distance bounds matrix
                 # noinspection PyUnusedLocal

@@ -1,4 +1,6 @@
 """ Args class for training arguments. """
+import os
+
 # noinspection PyPackageRequirements
 from tap import Tap
 
@@ -22,3 +24,4 @@ class Args(Tap):
     hidden_size: int = 256  # Hidden size
     log_frequency: int = 10  # Log frequency
     cuda: bool = False  # Cuda availability (this is set automatically)
+    gpu_device: int = 0  # Which GPU to use

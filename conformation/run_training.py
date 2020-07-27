@@ -2,9 +2,9 @@
 import json
 from logging import Logger
 import os
-from pprint import pformat
 from typing import Tuple
 
+from tensorboardX import SummaryWriter
 import torch
 # noinspection PyUnresolvedReferences
 from torch.optim import Adam
@@ -21,7 +21,7 @@ from conformation.utils import save_checkpoint, load_checkpoint, param_count, lo
 
 
 def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Args, logger: Logger,
-          n_iter: int) -> Tuple[int, float]:
+          n_iter: int, summary_writer: SummaryWriter) -> Tuple[int, float]:
     """
     Function for training a normalizing flow model.
     :param model: nn.Module neural network.
@@ -30,6 +30,7 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
     :param args: System args.
     :param logger: Logger.
     :param n_iter: Number of training iterations completed so far.
+    :param summary_writer: TensorboardX logging.
     :return: Total number of iterations completed.
     """
 
@@ -42,6 +43,7 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
     loss_sum, iter_count = 0, 0
     for batch in tqdm(data, total=len(data)):
         if args.cuda:
+            # noinspection PyUnresolvedReferences
             with torch.cuda.device(args.gpu_device):
                 if args.conditional:
                     batch = (batch[0].cuda(), batch[1].cuda(), batch[2].cuda())
@@ -65,9 +67,8 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
         if (n_iter // args.batch_size) % args.log_frequency == 0:
             loss_avg = loss_sum / iter_count
             loss_sum, iter_count = 0, 0
-            debug("Loss avg = {:.4e}".format(loss_avg))
-
-    debug("Total loss = {:.4e}".format(total_loss))
+            debug("Train loss avg = {:.4e}".format(loss_avg))
+            summary_writer.add_scalar("Avg Train Loss", loss_avg, n_iter)
 
     return n_iter, total_loss
 
@@ -84,7 +85,7 @@ def run_training(args: Args, logger: Logger) -> None:
     args.cuda = torch.cuda.is_available()
 
     # Set up logger
-    debug, info = logger.debug, logger.info  # TODO: verbose log looks nasty via Tap - fix this
+    debug, info = logger.debug, logger.info
 
     debug(args)
 
@@ -101,7 +102,7 @@ def run_training(args: Args, logger: Logger) -> None:
     debug('train size = {:,}'.format(train_data_length))
 
     # Convert to iterators
-    train_data = DataLoader(train_data, args.batch_size)
+    train_data = DataLoader(train_data, args.batch_size, shuffle=True)
 
     # Load/build model
     if args.checkpoint_path is not None:
@@ -115,6 +116,7 @@ def run_training(args: Args, logger: Logger) -> None:
     debug('Number of parameters = {:,}'.format(param_count(model)))
 
     if args.cuda:
+        # noinspection PyUnresolvedReferences
         with torch.cuda.device(args.gpu_device):
             debug('Moving model to cuda')
             model = model.cuda()
@@ -122,7 +124,17 @@ def run_training(args: Args, logger: Logger) -> None:
     # Optimizer
     optimizer = Adam(model.parameters(), lr=args.lr)
 
+    summary_writer = SummaryWriter(logdir=args.save_dir)
     best_epoch, n_iter = 0, 0
+    best_loss = float('inf')
     for epoch in trange(args.num_epochs):
-        n_iter, total_loss = train(model, optimizer, train_data, args, logger, n_iter)
+        n_iter, total_loss = train(model, optimizer, train_data, args, logger, n_iter, summary_writer)
+        debug(f"Epoch {epoch} total loss = {total_loss:.4e}")
+        summary_writer.add_scalar("Total Train Loss", total_loss, epoch)
         save_checkpoint(model, args, os.path.join(args.save_dir, "checkpoints", 'model-' + str(epoch) + '.pt'))
+        if total_loss < best_loss:
+            save_checkpoint(model, args, os.path.join(args.save_dir, "checkpoints", 'best.pt'))
+            best_loss = total_loss
+            best_epoch = epoch
+
+    debug(f"Best epoch: {best_epoch} with total loss = {best_loss:.4e}")

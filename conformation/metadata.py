@@ -59,9 +59,9 @@ def metadata(args: Args) -> None:
     conditional_dict = dict()
     uid_dict = dict()
     uid = 0
-    for _, _, files in os.walk(args.data_dir):
+    for root, _, files in os.walk(args.data_dir):
         for f in files:
-            path = os.path.join(args.data_dir, f)
+            path = os.path.join(root, f)
             if args.mpnn:
                 molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:

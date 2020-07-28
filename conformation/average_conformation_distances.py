@@ -26,10 +26,11 @@ def average_conformation_distances(args: Args) -> None:
     """
     os.makedirs(args.save_dir)
     avg_std_dist = dict()
-    for _, _, files_dist in os.walk(args.data_dir):
+    for root, _, files_dist in os.walk(args.data_dir):
         for f_dist in files_dist:
+            path = os.path.join(root, f_dist)
             molecule_name = f_dist[[m.start() for m in re.finditer("-", f_dist)][1] + 1:f_dist.find(".")]
-            _, dist_vec = distmat_to_vec(os.path.join(args.data_dir, f_dist))
+            _, dist_vec = distmat_to_vec(path)
             if molecule_name in avg_std_dist:
                 avg_std_dist[molecule_name].append(dist_vec)
             else:

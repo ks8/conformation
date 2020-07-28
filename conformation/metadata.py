@@ -45,7 +45,8 @@ def metadata(args: Args) -> None:
         loaded_state_dict = state['state_dict']
 
         graph_model = RelationalNetwork(loaded_args.hidden_size, loaded_args.num_layers, loaded_args.num_edge_features,
-                                        loaded_args.num_vertex_features, loaded_args.final_linear_size, cnf=True)
+                                        loaded_args.num_vertex_features, loaded_args.final_linear_size,
+                                        loaded_args.final_output_size, cnf=True)
         graph_model.load_state_dict(loaded_state_dict)
 
         if torch.cuda.is_available():
@@ -115,6 +116,8 @@ def metadata(args: Args) -> None:
                         np.concatenate([a, bond_types[bonds.index(full_edges[i])][0]]) if full_edges[i] in bonds else
                         no_bond for i in range(len(full_edges))]
                     sample.edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+
+                    # TODO: add additional shortest path length bond features
 
                     # Vertex features: one-hot representation of atomic number
                     # Create one-hot encoding

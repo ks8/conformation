@@ -119,7 +119,7 @@ def null_model(args: Args) -> None:
     loss_func_aux = torch.nn.MSELoss(reduction='none')
     with torch.no_grad():
         loss_sum, batch_count = 0, 0
-        for batch in tqdm(test_data, total=len(test_data)):
+        for batch in tqdm(train_data, total=len(train_data)):
             targets = batch.y.unsqueeze(1).cuda()
             preds = []
             for i in range(batch.uid.shape[0]):
@@ -129,7 +129,7 @@ def null_model(args: Args) -> None:
                 mol = Chem.AddHs(mol)
                 for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
                     preds.append(path_dict[len(rdmolops.GetShortestPath(mol, int(m), int(n)))])
-                    path_lengths.append(path_dict[len(rdmolops.GetShortestPath(mol, int(m), int(n)))])
+                    path_lengths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))))
             preds = torch.tensor(np.array(preds)).unsqueeze(1)
             preds = preds.cuda()
             loss = loss_func(preds, targets)
@@ -141,7 +141,7 @@ def null_model(args: Args) -> None:
             loss_sum += loss.item()
             batch_count += 1
         loss_avg = loss_sum / batch_count
-        print("Test loss avg = {:.4e}".format(loss_avg))
+        print("Train loss avg = {:.4e}".format(loss_avg))
 
         path_lengths = np.array(path_lengths)
         losses = np.array(losses)
@@ -149,13 +149,13 @@ def null_model(args: Args) -> None:
         plt.title("Error vs Path Length")
         plt.ylabel("|True - Predicted|")
         plt.xlabel("Shortest Path")
-        plt.savefig("qm9-path-length-model-error-vs-path-test-set")
+        plt.savefig("qm9-path-length-model-error-vs-path-train-set")
         plt.clf()
         plt.plot(np.log(path_lengths), np.log(losses), 'bo', markersize=0.5)
         plt.title("Error vs Atomic Pairwise Shortest Paths")
         plt.ylabel("|True - Predicted|")
         plt.xlabel("Shortest Path")
-        plt.savefig("qm9-path-length-model-error-vs-path-log-test-set")
+        plt.savefig("qm9-path-length-model-error-vs-path-log-train-set")
 
 
 

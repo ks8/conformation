@@ -4,6 +4,7 @@ import json
 import os
 
 from sklearn.model_selection import train_test_split
+from tensorboardX import SummaryWriter
 # noinspection PyPackageRequirements
 from tap import Tap
 import torch
@@ -26,13 +27,91 @@ class Args(Tap):
     lr: float = 1e-4  # Learning rate
     hidden_size: int = 256  # Hidden size
     num_layers: int = 10  # Number of layers
-    num_edge_features: int = 6  # Number of edge features
+    num_edge_features: int = 16  # Number of edge features
     final_linear_size: int = 1024  # Size of last linear layer
+    final_output_size: int = 1  # Size of output layer
     num_vertex_features: int = 5  # Number of vertex features
     cuda: bool = False  # Cuda availability
     checkpoint_path: str = None  # Directory of checkpoint to load saved model
     save_dir: str  # Save directory
     log_frequency: int = 10  # Log frequency
+    std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation
+
+
+def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Args, logger: Logger, n_iter: int,
+          loss_func: torch.nn.MSELoss, summary_writer: SummaryWriter) -> int:
+    """
+    Function for training a relational network.
+    :param model: Neural network.
+    :param optimizer: Adam optimizer.
+    :param data: DataLoader.
+    :param args: System arguments.
+    :param logger: System logger.
+    :param n_iter: Total number of iterations.
+    :param loss_func: MSE loss function.
+    :param summary_writer: TensorboardX summary writer.
+    :return: total number of iterations.
+    """
+    # Set up logger
+    debug, info = logger.debug, logger.info
+
+    model.train()
+    loss_sum, batch_count = 0, 0
+    for batch in tqdm(data, total=len(data)):
+        batch.x = batch.x.cuda()
+        batch.edge_attr = batch.edge_attr.cuda()
+
+        model.zero_grad()
+        if args.std:
+            targets = batch.y.cuda()
+        else:
+            targets = batch.y.cuda()[:, 0].unsqueeze(1)
+        # noinspection PyCallingNonCallable
+        preds = model(batch)
+        loss = loss_func(preds, targets)
+        loss_sum += loss.item()
+        batch_count += 1
+        n_iter += batch.num_graphs
+
+        loss.backward()
+        optimizer.step()
+
+        if (n_iter // args.batch_size) % args.log_frequency == 0:
+            loss_avg = loss_sum / batch_count
+            loss_sum, batch_count = 0, 0
+            debug("Train loss avg = {:.4e}".format(loss_avg))
+            summary_writer.add_scalar("Avg Train Loss", loss_avg, n_iter)
+
+    return n_iter
+
+
+def evaluate(model: RelationalNetwork, data: DataLoader, args: Args, loss_func: torch.nn.MSELoss) -> float:
+    """
+    Function for training a relational network.
+    :param model: Neural network.
+    :param data: DataLoader.
+    :param args: System arguments.
+    :param loss_func: MSE loss function.
+    :return: total number of iterations.
+    """
+    with torch.no_grad():
+        loss_sum, batch_count = 0, 0
+        model.eval()
+        for batch in tqdm(data, total=len(data)):
+            batch.x = batch.x.cuda()
+            batch.edge_attr = batch.edge_attr.cuda()
+            if args.std:
+                targets = batch.y.cuda()
+            else:
+                targets = batch.y.cuda()[:, 0].unsqueeze(1)
+            preds = model(batch)
+            loss = loss_func(preds, targets)
+            loss = torch.sqrt_(loss)
+            loss_sum += loss.item()
+            batch_count += 1
+        loss_avg = loss_sum / batch_count
+
+    return loss_avg
 
 
 def run_relational_training(args: Args, logger: Logger) -> None:
@@ -68,7 +147,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
 
     # Convert to iterators
     train_data = DataLoader(train_data, args.batch_size)
-    # val_data = DataLoader(val_data, args.batch_size)
+    val_data = DataLoader(val_data, args.batch_size)
     test_data = DataLoader(test_data, args.batch_size)
 
     # Load/build model
@@ -80,12 +159,13 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         loaded_state_dict = state['state_dict']
 
         model = RelationalNetwork(loaded_args.hidden_size, loaded_args.num_layers, loaded_args.num_edge_features,
-                                  loaded_args.num_vertex_features, loaded_args.final_linear_size)
+                                  loaded_args.num_vertex_features, loaded_args.final_linear_size,
+                                  loaded_args.final_output_size)
         model.load_state_dict(loaded_state_dict)
     else:
         debug('Building model')
         model = RelationalNetwork(args.hidden_size, args.num_layers, args.num_edge_features, args.num_vertex_features,
-                                  args.final_linear_size)
+                                  args.final_linear_size, args.final_output_size)
 
     debug(model)
     debug('Number of parameters = {:,}'.format(param_count(model)))
@@ -98,48 +178,38 @@ def run_relational_training(args: Args, logger: Logger) -> None:
     loss_func = torch.nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=1e-4)
 
-    model.train()
-
-    n_iter = 0
+    summary_writer = SummaryWriter(logdir=args.save_dir)
+    best_epoch, n_iter = 0, 0
+    best_metric_eval = float('inf')
     for epoch in trange(args.num_epochs):
-        loss_sum, batch_count = 0, 0
-        for batch in tqdm(train_data, total=len(train_data)):
-            batch.x = batch.x.cuda()
-            batch.edge_attr = batch.edge_attr.cuda()
-
-            model.zero_grad()
-            targets = batch.y.unsqueeze(1).cuda()
-            # noinspection PyCallingNonCallable
-            preds = model(batch)
-            loss = loss_func(preds, targets)
-            loss_sum += loss.item()
-            batch_count += 1
-            n_iter += batch.num_graphs
-
-            loss.backward()
-            optimizer.step()
-
-            if (n_iter // args.batch_size) % args.log_frequency == 0:
-                loss_avg = loss_sum / batch_count
-                loss_sum, batch_count = 0, 0
-                debug("Loss avg = {:.4e}".format(loss_avg))
-
+        n_iter = train(model, optimizer, train_data, args, logger, n_iter, loss_func, summary_writer)
         state = {
             'args': args.as_dict(),
             'state_dict': model.state_dict()
         }
         torch.save(state, os.path.join(args.save_dir, "checkpoints", 'model-' + str(epoch) + '.pt'))
+        val_metric_avg = evaluate(model, val_data, args, loss_func)
+        debug(f"Epoch {epoch} validation error avg = {val_metric_avg:.4e}")
+        summary_writer.add_scalar("Validation Average Error", val_metric_avg, epoch)
 
-    with torch.no_grad():
-        loss_sum, batch_count = 0, 0
-        model.eval()
-        for batch in tqdm(test_data, total=len(test_data)):
-            batch.x = batch.x.cuda()
-            batch.edge_attr = batch.edge_attr.cuda()
-            targets = batch.y.unsqueeze(1).cuda()
-            preds = model(batch)
-            loss = loss_func(preds, targets)
-            loss_sum += loss.item()
-            batch_count += 1
-        loss_avg = loss_sum / batch_count
-        debug("Test loss avg = {:.4e}".format(loss_avg))
+        if val_metric_avg < best_metric_eval:
+            torch.save(state, os.path.join(args.save_dir, "checkpoints", 'best.pt'))
+            best_metric_eval = val_metric_avg
+            best_epoch = epoch
+
+    debug(f"Best epoch: {best_epoch} with validation error avg = {best_metric_eval:.4e}")
+
+    # Load model and args
+    state = torch.load(os.path.join(args.save_dir, "checkpoints", 'best.pt'), map_location=lambda storage, loc: storage)
+    loaded_args = Args().from_dict(state['args'])
+    loaded_state_dict = state['state_dict']
+
+    model = RelationalNetwork(loaded_args.hidden_size, loaded_args.num_layers, loaded_args.num_edge_features,
+                              loaded_args.num_vertex_features, loaded_args.final_linear_size,
+                              loaded_args.final_output_size)
+    model.load_state_dict(loaded_state_dict)
+    if args.cuda:
+        print('Moving model to cuda')
+        model = model.cuda()
+    test_metric_avg = evaluate(model, test_data, args, loss_func)
+    debug(f"Test error avg = {test_metric_avg:.4e}")

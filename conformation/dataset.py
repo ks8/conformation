@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from rdkit import Chem
+from rdkit.Chem import rdmolops
 from scipy import sparse
 import torch
 from torch.utils.data import Dataset
@@ -40,13 +41,14 @@ class GraphDataset(Dataset):
     """
 
     def __init__(self, metadata: List[Dict[str, str]], atom_types: List[int] = None, bond_types: List[float] = None,
-                 target: bool = True):
+                 target: bool = True, max_path_length: int = 10):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
         :param atom_types: List of allowed atomic numbers.
         :param bond_types: List of allowed bond types.
         :param target: Whether or not to load target data from metadata into Data() object.
+        :param max_path_length: Maximum shortest path length between any two atoms in a molecule in the dataset.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
@@ -55,6 +57,7 @@ class GraphDataset(Dataset):
             self.atom_types = [1, 6, 7, 8, 9]
         self.metadata = metadata
         self.target = target
+        self.max_path_length = max_path_length
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -90,6 +93,13 @@ class GraphDataset(Dataset):
         for i in range(len(self.bond_types)):
             bond_to_one_hot[self.bond_types[i]] = one_hot_bond_features[i]
 
+        # Create one-hot encoding for shortest path length
+        one_hot_shortest_path_features = np.zeros((self.max_path_length, self.max_path_length))
+        np.fill_diagonal(one_hot_shortest_path_features, 1.)
+        bond_to_shortest_path_one_hot = dict()
+        for i in range(self.max_path_length):
+            bond_to_shortest_path_one_hot[i + 1] = one_hot_shortest_path_features[i]
+
         # Extract atom indices participating in bonds and bond types
         bonds = []
         bond_types = []
@@ -99,10 +109,13 @@ class GraphDataset(Dataset):
 
         # Compute edge attributes: 1 indicates presence of bond, 0 no bond. This is concatenated with one-hot bond feat.
         full_edges = [list(data.edge_index[:, i].numpy()) for i in range(data.edge_index.shape[1])]
+        shortest_path_lengths = [bond_to_shortest_path_one_hot[len(rdmolops.GetShortestPath(mol, int(x[0]), int(x[1])))
+                                                               - 1] for x in full_edges]
         no_bond = np.concatenate([np.array([0]), bond_to_one_hot[0]])
         a = np.array([1])
-        edge_attr = [np.concatenate([a, bond_types[bonds.index(full_edges[i])][0]]) if full_edges[i] in bonds else
-                     no_bond for i in range(len(full_edges))]
+        edge_attr = [np.concatenate([a, bond_types[bonds.index(full_edges[i])][0], shortest_path_lengths[i]]) if
+                     full_edges[i] in bonds else np.concatenate([no_bond, shortest_path_lengths[i]]) for i in
+                     range(len(full_edges))]
         data.edge_attr = torch.tensor(edge_attr, dtype=torch.float)
 
         # Vertex features: one-hot representation of atomic number

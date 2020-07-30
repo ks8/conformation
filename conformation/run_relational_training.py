@@ -36,6 +36,7 @@ class Args(Tap):
     save_dir: str  # Save directory
     log_frequency: int = 10  # Log frequency
     std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation
+    # TODO: add option for atom types and bond types instead of num features...
 
 
 def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Args, logger: Logger, n_iter: int,

@@ -129,84 +129,97 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                 targets = batch.y.cuda()[:, 0].unsqueeze(1)
             preds = model(batch)
 
-            # Compute error, target (true distance), and shortest path for each edge
-            # Compute error for each edge and append to errors list
-            loss_aux = torch.sqrt_(loss_func_aux(preds, targets))
-            loss_aux = loss_aux.cpu().numpy()
-            for i in range(loss_aux.shape[0]):
-                errors.append(loss_aux[i][0])
+            if loaded_args.final_output_size == 2:
+                if sum(preds[:, 1] < 0).item() > 0:
+                    debug('Negative std prediction detected!')
+                if sum(preds[:, 0] < 0).item() > 0:
+                    debug('Negative mean prediction detected!')
 
-            # Compute true distance for each edge and append to true_distances list
-            if args.distance_analysis:
-                candidates = []
-            targets_aux = targets.cpu().numpy()
-            for i in range(targets_aux.shape[0]):
-                edge_distance = targets_aux[i][0]
-                true_distances.append(edge_distance)
+            else:
+
+                # Compute error, target (true distance), and shortest path for each edge
+                # Compute error for each edge and append to errors list
+                loss_aux = torch.sqrt_(loss_func_aux(preds, targets))
+                loss_aux = loss_aux.cpu().numpy()
+                for i in range(loss_aux.shape[0]):
+                    errors.append(loss_aux[i][0])
+
+                # Compute true distance for each edge and append to true_distances list
                 if args.distance_analysis:
-                    if args.distance_analysis_lo < edge_distance < args.distance_analysis_hi:
-                        candidates.append(i)
-
-            # Compute shortest path length for each edge and append to shortest_paths list
-            if args.distance_analysis:
-                j = 0
-            for i in range(batch.uid.shape[0]):
-                uid = batch.uid[i].item()
-                smiles = uid_dict[uid]
-                mol = Chem.MolFromSmiles(smiles)
-                mol = Chem.AddHs(mol)
-                for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                    candidates = []
+                targets_aux = targets.cpu().numpy()
+                for i in range(targets_aux.shape[0]):
+                    edge_distance = targets_aux[i][0]
+                    true_distances.append(edge_distance)
                     if args.distance_analysis:
-                        if j in candidates:
-                            debug(str(mol.GetAtoms()[int(m)].GetSymbol()) + " " +
-                                  str(mol.GetAtoms()[int(n)].GetSymbol()) + " " +
-                                  str(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1))
-                        j += 1
-                    shortest_paths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1)
+                        if args.distance_analysis_lo < edge_distance < args.distance_analysis_hi:
+                            candidates.append(i)
 
-            # Compute RMSE loss
-            loss = loss_func(preds, targets)
-            loss = torch.sqrt_(loss)
-            loss_sum += loss.item()
-            batch_count += 1
+                # Compute shortest path length for each edge and append to shortest_paths list
+                if args.distance_analysis:
+                    j = 0
+                for i in range(batch.uid.shape[0]):
+                    uid = batch.uid[i].item()
+                    smiles = uid_dict[uid]
+                    mol = Chem.MolFromSmiles(smiles)
+                    mol = Chem.AddHs(mol)
+                    for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                        if args.distance_analysis:
+                            if j in candidates:
+                                debug(str(mol.GetAtoms()[int(m)].GetSymbol()) + " " +
+                                      str(mol.GetAtoms()[int(n)].GetSymbol()) + " " +
+                                      str(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1))
+                            j += 1
+                        shortest_paths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1)
 
-        loss_avg = loss_sum / batch_count
-        debug("Test loss avg = {:.4e}".format(loss_avg))
+                # Compute RMSE loss
+                loss = loss_func(preds, targets)
+                loss = torch.sqrt_(loss)
+                loss_sum += loss.item()
+                batch_count += 1
 
-        # Convert to numpy
-        errors = np.array(errors)
-        true_distances = np.array(true_distances)
-        shortest_paths = np.array(shortest_paths)
+        if loaded_args.final_output_size == 1:
+            loss_avg = loss_sum / batch_count
+            debug("Test loss avg = {:.4e}".format(loss_avg))
 
-        # Plotting
-        # Plot error vs true distance
-        plt.plot(true_distances, errors, 'bo', markersize=0.5)
-        plt.title("Error vs True Atomic Pairwise Distances")
-        plt.ylabel("|True - Predicted|")
-        plt.xlabel("True")
-        plt.savefig(os.path.join(args.save_dir, "error-vs-distance"))
-        plt.clf()
+            # Convert to numpy
+            errors = np.array(errors)
+            true_distances = np.array(true_distances)
+            shortest_paths = np.array(shortest_paths)
 
-        # Plot log error vs log true distance
-        plt.plot(np.log(true_distances), np.log(errors), 'bo', markersize=0.5)
-        plt.title("Error vs True Atomic Pairwise Distances")
-        plt.ylabel("log(|True - Predicted|)")
-        plt.xlabel("log(True)")
-        plt.savefig(os.path.join(args.save_dir, "log-error-vs-log-distance"))
-        plt.clf()
+            # Plotting
+            # Plot error vs true distance
+            plt.plot(true_distances, errors, 'bo', markersize=0.5)
+            plt.title("Error vs True Atomic Pairwise Distances")
+            plt.ylabel("|True - Predicted|")
+            plt.xlabel("True")
+            plt.ylim((0.0, 4.0))
+            plt.savefig(os.path.join(args.save_dir, "error-vs-distance"))
+            plt.clf()
 
-        # Plot error vs shortest path
-        plt.plot(shortest_paths, errors, 'bo', markersize=0.5)
-        plt.title("Error vs Atomic Pairwise Shortest Paths")
-        plt.ylabel("|True - Predicted|")
-        plt.xlabel("Shortest Path")
-        plt.savefig(os.path.join(args.save_dir, "error-vs-path-length"))
-        plt.clf()
+            # Plot log error vs log true distance
+            plt.plot(np.log(true_distances), np.log(errors), 'bo', markersize=0.5)
+            plt.title("Error vs True Atomic Pairwise Distances")
+            plt.ylabel("log(|True - Predicted|)")
+            plt.xlabel("log(True)")
+            plt.xlim((0.0, 2.5))
+            plt.ylim((-15.0, 2.0))
+            plt.savefig(os.path.join(args.save_dir, "log-error-vs-log-distance"))
+            plt.clf()
 
-        # Plot shortest path vs distance
-        plt.plot(true_distances, shortest_paths, 'bo', markersize=0.5)
-        plt.title("Error vs Atomic Pairwise Shortest Paths")
-        plt.ylabel("Shortest Path")
-        plt.xlabel("True Distance")
-        plt.savefig(os.path.join(args.save_dir, "path-length-vs-distance"))
-        plt.clf()
+            # Plot error vs shortest path
+            plt.plot(shortest_paths, errors, 'bo', markersize=0.5)
+            plt.title("Error vs Atomic Pairwise Shortest Paths")
+            plt.ylabel("|True - Predicted|")
+            plt.xlabel("Shortest Path")
+            plt.ylim((0.0, 4.0))
+            plt.savefig(os.path.join(args.save_dir, "error-vs-path-length"))
+            plt.clf()
+
+            # Plot shortest path vs distance
+            plt.plot(true_distances, shortest_paths, 'bo', markersize=0.5)
+            plt.title("Error vs Atomic Pairwise Shortest Paths")
+            plt.ylabel("Shortest Path")
+            plt.xlabel("True Distance")
+            plt.savefig(os.path.join(args.save_dir, "path-length-vs-distance"))
+            plt.clf()

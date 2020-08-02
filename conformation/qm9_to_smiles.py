@@ -17,7 +17,7 @@ class Args(Tap):
     data_path: str  # Path to QM9 sdf file
     save_dir: str  # Path to directory for output files
     n_min: int = 2  # Minimum number of heavy atoms
-    n_max: int = 20  # Maximum number of heavy atoms
+    n_max: int = 20  # Maximum number of heavy atoms  # TODO: I think QM9 has a global max of 9 heavy atoms...
     max_num: int = 20  # Maximum number of molecules to read
 
 

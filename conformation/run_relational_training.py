@@ -36,11 +36,13 @@ class Args(Tap):
     save_dir: str  # Save directory
     log_frequency: int = 10  # Log frequency
     std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation
+    alpha: float = 20.0  # How much to weight positive std prediction losses
+    beta: float = 2000.0  # How much to weight negative std prediction losses
     # TODO: add option for atom types and bond types instead of num features...
 
 
 def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Args, logger: Logger, n_iter: int,
-          loss_func: torch.nn.MSELoss, summary_writer: SummaryWriter) -> int:
+          loss_func: torch.nn.MSELoss, loss_func_aux: torch.nn.MSELoss, summary_writer: SummaryWriter) -> int:
     """
     Function for training a relational network.
     :param model: Neural network.
@@ -50,6 +52,7 @@ def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Arg
     :param logger: System logger.
     :param n_iter: Total number of iterations.
     :param loss_func: MSE loss function.
+    :param loss_func_aux: MSE loss function for std predictions.
     :param summary_writer: TensorboardX summary writer.
     :return: total number of iterations.
     """
@@ -69,7 +72,14 @@ def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Arg
             targets = batch.y.cuda()[:, 0].unsqueeze(1)
         # noinspection PyCallingNonCallable
         preds = model(batch)
-        loss = loss_func(preds, targets)
+        if args.std:
+            # loss = loss_func(preds[:, 0], targets[:, 0]) + args.alpha*loss_func(preds[:, 1], targets[:, 1])
+            std_loss_weights = args.alpha*(preds[:, 1] > 0) + args.beta*(preds[:, 1] < 0)
+            mean_loss = loss_func(preds[:, 0], targets[:, 0])
+            std_loss = torch.mean(loss_func_aux(preds[:, 1], targets[:, 1])*std_loss_weights)
+            loss = mean_loss + std_loss
+        else:
+            loss = loss_func(preds, targets)
         loss_sum += loss.item()
         batch_count += 1
         n_iter += batch.num_graphs
@@ -86,13 +96,15 @@ def train(model: RelationalNetwork, optimizer: Adam, data: DataLoader, args: Arg
     return n_iter
 
 
-def evaluate(model: RelationalNetwork, data: DataLoader, args: Args, loss_func: torch.nn.MSELoss) -> float:
+def evaluate(model: RelationalNetwork, data: DataLoader, args: Args, loss_func: torch.nn.MSELoss,
+             loss_func_aux: torch.nn.MSELoss) -> float:
     """
     Function for training a relational network.
     :param model: Neural network.
     :param data: DataLoader.
     :param args: System arguments.
     :param loss_func: MSE loss function.
+    :param loss_func_aux: MSE loss function for std predictions.
     :return: total number of iterations.
     """
     with torch.no_grad():
@@ -106,7 +118,14 @@ def evaluate(model: RelationalNetwork, data: DataLoader, args: Args, loss_func: 
             else:
                 targets = batch.y.cuda()[:, 0].unsqueeze(1)
             preds = model(batch)
-            loss = loss_func(preds, targets)
+            if args.std:
+                # loss = loss_func(preds[:, 0], targets[:, 0]) + args.alpha*loss_func(preds[:, 1], targets[:, 1])
+                std_loss_weights = args.alpha * (preds[:, 1] > 0) + args.beta * (preds[:, 1] < 0)
+                mean_loss = loss_func(preds[:, 0], targets[:, 0])
+                std_loss = torch.mean(loss_func_aux(preds[:, 1], targets[:, 1]) * std_loss_weights)
+                loss = mean_loss + std_loss
+            else:
+                loss = loss_func(preds, targets)
             loss = torch.sqrt_(loss)
             loss_sum += loss.item()
             batch_count += 1
@@ -177,19 +196,20 @@ def run_relational_training(args: Args, logger: Logger) -> None:
 
     # Loss func and optimizer
     loss_func = torch.nn.MSELoss()
+    loss_func_aux = torch.nn.MSELoss(reduction='none')
     optimizer = Adam(model.parameters(), lr=1e-4)
 
     summary_writer = SummaryWriter(logdir=args.save_dir)
     best_epoch, n_iter = 0, 0
     best_metric_eval = float('inf')
     for epoch in trange(args.num_epochs):
-        n_iter = train(model, optimizer, train_data, args, logger, n_iter, loss_func, summary_writer)
+        n_iter = train(model, optimizer, train_data, args, logger, n_iter, loss_func, loss_func_aux, summary_writer)
         state = {
             'args': args.as_dict(),
             'state_dict': model.state_dict()
         }
         torch.save(state, os.path.join(args.save_dir, "checkpoints", 'model-' + str(epoch) + '.pt'))
-        val_metric_avg = evaluate(model, val_data, args, loss_func)
+        val_metric_avg = evaluate(model, val_data, args, loss_func, loss_func_aux)
         debug(f"Epoch {epoch} validation error avg = {val_metric_avg:.4e}")
         summary_writer.add_scalar("Validation Average Error", val_metric_avg, epoch)
 
@@ -212,5 +232,5 @@ def run_relational_training(args: Args, logger: Logger) -> None:
     if args.cuda:
         print('Moving model to cuda')
         model = model.cuda()
-    test_metric_avg = evaluate(model, test_data, args, loss_func)
+    test_metric_avg = evaluate(model, test_data, args, loss_func, loss_func_aux)
     debug(f"Test error avg = {test_metric_avg:.4e}")

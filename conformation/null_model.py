@@ -182,7 +182,7 @@ def null_model(args: Args, logger: Logger) -> None:
 
     # Save errors
     np.save(os.path.join(args.save_dir, "null-model-1-errors"), losses)
-
+    #
     # Null model 2: compute the average distance between pairs of atoms across all molecules conditioned
     # on shortest path length as well as atom types, and use that to predict the distance between atoms with a
     # given shortest path length and pair of atom types.
@@ -263,3 +263,98 @@ def null_model(args: Args, logger: Logger) -> None:
     plt.savefig(os.path.join(args.save_dir, "null-model-2-error-vs-path"))
 
     np.save(os.path.join(args.save_dir, "null-model-2-errors"), losses)
+
+    # Null model 3: compute the average distance between pairs of atoms across all molecules conditioned
+    # on shortest path length as well as all atom types along that specific path, and use that to predict the distance
+    # between atoms with a given shortest path length and sequence of atom types.
+    debug("training null model 3")
+    null_model_2_path_dict = path_dict
+    true_distances = []
+    shortest_paths = []
+    path_dict = dict()
+    with torch.no_grad():
+        for batch in tqdm(train_data, total=len(train_data)):
+            targets = batch.y[:, 0].unsqueeze(1)
+            targets_aux = targets.cpu().numpy()
+            for i in range(targets_aux.shape[0]):
+                true_distances.append(targets_aux[i][0])
+            for i in range(batch.uid.shape[0]):
+                uid = batch.uid[i].item()
+                smiles = uid_dict[uid]
+                mol = Chem.MolFromSmiles(smiles)
+                mol = Chem.AddHs(mol)
+                # Iterate through all pairs of atoms in the molecule and compute the shortest path length
+                # as well as the sequence of atom types, and concatenate that info to create the dictionary key
+                for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                    atoms = []
+                    path = rdmolops.GetShortestPath(mol, int(m), int(n))
+                    path_len = len(path) - 1
+                    for j in range(path_len + 1):
+                        atoms.append(mol.GetAtoms()[path[j]].GetSymbol())
+                    key = ''.join(atoms)
+                    shortest_paths.append(key)
+    true_distances = np.array(true_distances)
+    for i in range(len(shortest_paths)):
+        if shortest_paths[i] in path_dict:
+            path_dict[shortest_paths[i]].append(true_distances[i])
+        else:
+            array = [true_distances[i]]
+            path_dict[shortest_paths[i]] = array
+            path_dict[shortest_paths[i][::-1]] = array
+    for key in path_dict:
+        path_dict[key] = np.array(path_dict[key]).mean()
+
+    # Test null model 3
+    debug("testing null model 3")
+    path_lengths = []
+    losses = []
+    loss_func_aux = torch.nn.MSELoss(reduction='none')
+    with torch.no_grad():
+        loss_sum, batch_count = 0, 0
+        for batch in tqdm(test_data, total=len(test_data)):
+            targets = batch.y[:, 0].unsqueeze(1)
+            preds = []
+            for i in range(batch.uid.shape[0]):
+                uid = batch.uid[i].item()
+                smiles = uid_dict[uid]
+                mol = Chem.MolFromSmiles(smiles)
+                mol = Chem.AddHs(mol)
+                # Predict distance based on shortest path length and atom types for each pair of atoms,
+                # keeping track of both the predictions and the shortest path lengths
+                for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                    atoms = []
+                    path = rdmolops.GetShortestPath(mol, int(m), int(n))
+                    path_len = len(path) - 1
+                    for j in range(path_len + 1):
+                        atoms.append(mol.GetAtoms()[path[j]].GetSymbol())
+                    key = ''.join(atoms)
+                    if key in shortest_paths:
+                        preds.append(path_dict[key])
+                    else:
+                        atom_a = str(mol.GetAtoms()[int(m)].GetSymbol())
+                        atom_b = str(mol.GetAtoms()[int(n)].GetSymbol())
+                        path_len = len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1
+                        key = ''.join(sorted([atom_a, atom_b])) + str(path_len)
+                        preds.append(null_model_2_path_dict[key])
+                    path_lengths.append(path_len)
+            preds = torch.tensor(np.array(preds)).unsqueeze(1)
+            loss = loss_func(preds, targets)
+            loss = torch.sqrt_(loss)
+            loss_aux = torch.sqrt_(loss_func_aux(preds, targets))
+            loss_aux = loss_aux.cpu().numpy()
+            for i in range(loss_aux.shape[0]):
+                losses.append(loss_aux[i][0])
+            loss_sum += loss.item()
+            batch_count += 1
+        loss_avg = loss_sum / batch_count
+        debug("Test error avg = {:.4e}".format(loss_avg))
+
+    path_lengths = np.array(path_lengths)
+    losses = np.array(losses)
+    plt.plot(path_lengths, losses, 'bo', markersize=0.5)
+    plt.title("Error vs Path Length")
+    plt.ylabel("|True - Predicted|")
+    plt.xlabel("Shortest Path")
+    plt.savefig(os.path.join(args.save_dir, "null-model-3-error-vs-path"))
+
+    np.save(os.path.join(args.save_dir, "null-model-3-errors"), losses)

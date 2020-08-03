@@ -71,9 +71,9 @@ class RelationalNetwork(torch.nn.Module):
 
         e_ij_final = self.final_linear_layer(e_ij_in)  # Compute final linear layer
         preds = self.output_layer(e_ij_final)  # Output layer
-        # if self.final_output_size == 2:  # TODO: finalize
-        #     # noinspection PyAugmentAssignment
-        #     preds = preds*preds
+        if self.final_output_size == 2:  # TODO: finalize
+            # noinspection PyAugmentAssignment
+            preds = preds*preds
 
         if self.cnf:
             return e_ij_in

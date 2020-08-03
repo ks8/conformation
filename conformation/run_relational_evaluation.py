@@ -117,6 +117,10 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     errors = []
     true_distances = []
     shortest_paths = []
+    bond_types = []
+    triplet_types = []
+    bond_type_dict = dict()
+    triplet_dict = dict()
     with torch.no_grad():
         loss_sum, batch_count = 0, 0
         model.eval()
@@ -155,7 +159,8 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                         if args.distance_analysis_lo < edge_distance < args.distance_analysis_hi:
                             candidates.append(i)
 
-                # Compute shortest path length for each edge and append to shortest_paths list
+                # Compute shortest path length for each edge and append to shortest_paths list, and also
+                # compute the bond type and append to bond_types list
                 if args.distance_analysis:
                     j = 0
                 for i in range(batch.uid.shape[0]):
@@ -171,6 +176,19 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                       str(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1))
                             j += 1
                         shortest_paths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1)
+                        atom_a = str(mol.GetAtoms()[int(m)].GetSymbol())
+                        atom_b = str(mol.GetAtoms()[int(n)].GetSymbol())
+                        path_len = len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1
+                        key = ''.join(sorted([atom_a, atom_b])) + str(path_len)
+                        bond_types.append(key)
+
+                        if path_len == 2:
+                            atom_intermediate = mol.GetAtoms()[rdmolops.GetShortestPath(mol, int(m),
+                                                                                        int(n))[1]].GetSymbol()
+                            key = sorted([atom_a, atom_b])[0] + atom_intermediate + sorted([atom_a, atom_b])[1]
+                            triplet_types.append(key)
+                        else:
+                            triplet_types.append(None)
 
                 # Compute RMSE loss
                 loss = loss_func(preds, targets)
@@ -186,6 +204,26 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
             errors = np.array(errors)
             true_distances = np.array(true_distances)
             shortest_paths = np.array(shortest_paths)
+
+            # Load items into bond type dictionary
+            for i in range(len(bond_types)):
+                if bond_types[i] in bond_type_dict:
+                    bond_type_dict[bond_types[i]].append([errors[i], true_distances[i]])
+                else:
+                    bond_type_dict[bond_types[i]] = [[errors[i], true_distances[i]]]
+
+            for i in range(len(triplet_types)):
+                if triplet_types[i] is not None:
+                    if triplet_types[i] in triplet_dict:
+                        triplet_dict[triplet_types[i]].append([errors[i], true_distances[i]])
+                    else:
+                        triplet_dict[triplet_types[i]] = [[errors[i], true_distances[i]]]
+
+            for key in bond_type_dict:
+                bond_type_dict[key] = np.array(bond_type_dict[key])
+
+            for key in triplet_dict:
+                triplet_dict[key] = np.array(triplet_dict[key])
 
             # Plotting
             # Plot error vs true distance
@@ -207,6 +245,26 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
             plt.savefig(os.path.join(args.save_dir, "log-error-vs-log-distance"))
             plt.clf()
 
+            # Plot error vs true distance for each bond type
+            for key in bond_type_dict:
+                plt.plot(bond_type_dict[key][:, 1], bond_type_dict[key][:, 0], 'bo', markersize=0.5)
+                plt.title("Error vs True Atomic Pairwise Distances: " + key)
+                plt.ylabel("|True - Predicted|")
+                plt.xlabel("True")
+                plt.ylim((0.0, 4.0))
+                plt.savefig(os.path.join(args.save_dir, "error-vs-distance-" + key))
+                plt.clf()
+
+            # Plot error vs true distance for each triplet type
+            for key in triplet_dict:
+                plt.plot(triplet_dict[key][:, 1], triplet_dict[key][:, 0], 'bo', markersize=0.5)
+                plt.title("Error vs True Atomic Pairwise Distances: " + key)
+                plt.ylabel("|True - Predicted|")
+                plt.xlabel("True")
+                plt.ylim((0.0, 4.0))
+                plt.savefig(os.path.join(args.save_dir, "error-vs-distance-" + key))
+                plt.clf()
+
             # Plot error vs shortest path
             plt.plot(shortest_paths, errors, 'bo', markersize=0.5)
             plt.title("Error vs Atomic Pairwise Shortest Paths")
@@ -223,3 +281,6 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
             plt.xlabel("True Distance")
             plt.savefig(os.path.join(args.save_dir, "path-length-vs-distance"))
             plt.clf()
+
+            # Save errors numpy array
+            np.save(os.path.join(args.save_dir, "errors"), errors)

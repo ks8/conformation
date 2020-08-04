@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pickle
+from typing import Tuple
 from typing_extensions import Literal
 
 from rdkit import Chem
@@ -37,6 +38,81 @@ class Args(Tap):
     distance_analysis: bool = False  # Whether or not to print selective bond/edge information
     distance_analysis_lo: float = 1.0  # Lower distance analysis bound
     distance_analysis_hi: float = 2.0  # Upper distance analysis bound
+
+
+def simple_plot(array_x: np.ndarray, array_y: np.ndarray, title: str, x_label: str, y_label: str, save_path: str,
+                style: str = 'bo', size: float = 0.5, x_lim: Tuple = None, y_lim: Tuple = None) -> None:
+    """
+    Plot one array against another.
+    :param array_x: Data measured on the x-axis.
+    :param array_y: Data measured on the y-axis.
+    :param title: Plot title.
+    :param x_label: x-axis label.
+    :param y_label: y-axis label.
+    :param save_path: Name to save figure as.
+    :param style: Plot style.
+    :param size: Marker size.
+    :param x_lim: x-axis limits.
+    :param y_lim: y-axis limits.
+    :return: None.
+    """
+    plt.plot(array_x, array_y, style, markersize=size)
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    if x_lim is not None:
+        plt.xlim(x_lim)
+    if y_lim is not None:
+        plt.ylim(y_lim)
+    plt.savefig(save_path)
+    plt.clf()
+
+
+def double_axis_plot(array_x: np.ndarray, array_y_1: np.ndarray, array_y_2: np.ndarray, title: str, x_label: str,
+                     y_label_1: str, y_label_2: str, save_path: str, color_1: str = 'tab:red',
+                     color_2: str = 'tab:blue', style: str = 'o', size: float = 0.5, x_lim: Tuple = None,
+                     y_lim_1: Tuple = None, y_lim_2: Tuple = None) -> None:
+    """
+    Plot one array against another.
+    :param array_x: Data measured on the x-axis.
+    :param array_y_1: Data measured on the left y-axis.
+    :param array_y_2: Data measured on the right y-axis.
+    :param title: Plot title.
+    :param x_label: x-axis label.
+    :param y_label_1: Left y-axis label.
+    :param y_label_2: Right y-axis label.
+    :param save_path: Name to save figure as.
+    :param color_1: Color of left axis info.
+    :param color_2: Color of right axis info.
+    :param style: Plot style.
+    :param size: Marker size.
+    :param x_lim: x-axis limits.
+    :param y_lim_1: Left y-axis limits.
+    :param y_lim_2: Right y-axis limits.
+    :return: None.
+    """
+    fig, ax1 = plt.subplots()
+
+    color = color_1
+    ax1.set_xlabel(x_label)
+    ax1.set_ylabel(y_label_1, color=color)
+    ax1.plot(array_x, array_y_1, style, color=color, markersize=size)
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.set_ylim(y_lim_1)
+    ax1.set_xlim(x_lim)
+
+    ax2 = ax1.twinx()
+    color = color_2
+    ax2.set_ylabel(y_label_2, color=color)
+    ax2.plot(array_x, array_y_2, style, color=color, markersize=size)
+    ax2.tick_params(axis='y', labelcolor=color)
+    ax2.set_ylim(y_lim_2)
+
+    fig.tight_layout()
+    plt.title(title)
+    plt.savefig(save_path, bbox_inches='tight')
+    fig.clf()
+    plt.close(fig)
 
 
 def run_relational_evaluation(args: Args, logger: Logger) -> None:
@@ -117,12 +193,22 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     errors = []
     true_distances = []
     shortest_paths = []
+    predictions = []
+    mean_predictions = []
+    std_predictions = []
+    mean_errors = []
+    std_errors = []
+    true_means = []
+    true_stds = []
     bond_types = []
     triplet_types = []
     bond_type_dict = dict()
     triplet_dict = dict()
     with torch.no_grad():
-        loss_sum, batch_count = 0, 0
+        if loaded_args.final_output_size == 2:
+            mean_error_sum, std_error_sum, batch_count = 0, 0, 0
+        else:
+            loss_sum, batch_count = 0, 0
         model.eval()
         for batch in tqdm(data, total=len(data)):
             batch.x = batch.x.cuda()
@@ -139,7 +225,69 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                 if sum(preds[:, 0] < 0).item() > 0:
                     debug('Negative mean prediction detected!')
 
+                mean_preds = preds[:, 0].cpu().numpy()
+                for i in range(mean_preds.shape[0]):
+                    mean_predictions.append(mean_preds[i])
+
+                std_preds = preds[:, 1].cpu().numpy()
+                for i in range(std_preds.shape[0]):
+                    std_predictions.append(std_preds[i])
+
+                mean_error_aux = torch.sqrt_(loss_func_aux(preds[:, 0], targets[:, 0]))
+                mean_error_aux = mean_error_aux.cpu().numpy()
+                for i in range(mean_error_aux.shape[0]):
+                    mean_errors.append(mean_error_aux[i])
+
+                std_error_aux = torch.sqrt_(loss_func_aux(preds[:, 1], targets[:, 1]))
+                std_error_aux = std_error_aux.cpu().numpy()
+                for i in range(std_error_aux.shape[0]):
+                    std_errors.append(std_error_aux[i])
+
+                mean_targets_aux = targets[:, 0].cpu().numpy()
+                for i in range(mean_targets_aux.shape[0]):
+                    edge_distance = mean_targets_aux[i]
+                    true_means.append(edge_distance)
+
+                std_targets_aux = targets[:, 1].cpu().numpy()
+                for i in range(std_targets_aux.shape[0]):
+                    edge_std = std_targets_aux[i]
+                    true_stds.append(edge_std)
+
+                    # Compute shortest path length for each edge and append to shortest_paths list, and also
+                    # compute the bond type and append to bond_types list
+                for i in range(batch.uid.shape[0]):
+                    uid = batch.uid[i].item()
+                    smiles = uid_dict[uid]
+                    mol = Chem.MolFromSmiles(smiles)
+                    mol = Chem.AddHs(mol)
+                    for m, n in itertools.combinations(list(np.arange(mol.GetNumAtoms())), 2):
+                        shortest_paths.append(len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1)
+                        atom_a = str(mol.GetAtoms()[int(m)].GetSymbol())
+                        atom_b = str(mol.GetAtoms()[int(n)].GetSymbol())
+                        path_len = len(rdmolops.GetShortestPath(mol, int(m), int(n))) - 1
+                        key = ''.join(sorted([atom_a, atom_b])) + str(path_len)
+                        bond_types.append(key)
+
+                        if path_len == 2:
+                            atom_intermediate = mol.GetAtoms()[rdmolops.GetShortestPath(mol, int(m),
+                                                                                        int(n))[1]].GetSymbol()
+                            key = sorted([atom_a, atom_b])[0] + atom_intermediate + sorted([atom_a, atom_b])[1]
+                            triplet_types.append(key)
+                        else:
+                            triplet_types.append(None)
+
+                # Compute RMSE loss for means and stds
+                mean_loss, std_loss = loss_func(preds[:, 0], targets[:, 0]), loss_func(preds[:, 1], targets[:, 1])
+                mean_error, std_error = torch.sqrt_(mean_loss), torch.sqrt_(std_loss)
+                mean_error_sum += mean_error.item()
+                std_error_sum += std_error.item()
+                batch_count += 1
+
             else:
+
+                preds_numpy = preds.cpu().numpy()
+                for i in range(preds_numpy.shape[0]):
+                    predictions.append(preds[i][0])
 
                 # Compute error, target (true distance), and shortest path for each edge
                 # Compute error for each edge and append to errors list
@@ -196,28 +344,38 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                 loss_sum += loss.item()
                 batch_count += 1
 
-        if loaded_args.final_output_size == 1:
-            loss_avg = loss_sum / batch_count
-            debug("Test loss avg = {:.4e}".format(loss_avg))
+        if loaded_args.final_output_size == 2:
+            mean_error_avg = mean_error_sum / batch_count
+            std_error_avg = std_error_sum / batch_count
+            debug(f'Test mean error avg = {mean_error_avg:.4e}')
+            debug(f'Test std error avg = {std_error_avg:.4e}')
 
             # Convert to numpy
-            errors = np.array(errors)
-            true_distances = np.array(true_distances)
+            mean_errors = np.array(mean_errors)
+            std_errors = np.array(std_errors)
+            true_means = np.array(true_means)
+            true_stds = np.array(true_stds)
             shortest_paths = np.array(shortest_paths)
+            mean_predictions = np.array(mean_predictions)
+            std_predictions = np.array(std_predictions)
 
             # Load items into bond type dictionary
             for i in range(len(bond_types)):
                 if bond_types[i] in bond_type_dict:
-                    bond_type_dict[bond_types[i]].append([errors[i], true_distances[i]])
+                    bond_type_dict[bond_types[i]].append([mean_errors[i], std_errors[i], true_means[i], true_stds[i],
+                                                          mean_predictions[i], std_predictions[i]])
                 else:
-                    bond_type_dict[bond_types[i]] = [[errors[i], true_distances[i]]]
+                    bond_type_dict[bond_types[i]] = [[mean_errors[i], std_errors[i], true_means[i], true_stds[i],
+                                                      mean_predictions[i], std_predictions[i]]]
 
             for i in range(len(triplet_types)):
                 if triplet_types[i] is not None:
                     if triplet_types[i] in triplet_dict:
-                        triplet_dict[triplet_types[i]].append([errors[i], true_distances[i]])
+                        triplet_dict[triplet_types[i]].append([mean_errors[i], std_errors[i], true_means[i],
+                                                               true_stds[i], mean_predictions[i], std_predictions[i]])
                     else:
-                        triplet_dict[triplet_types[i]] = [[errors[i], true_distances[i]]]
+                        triplet_dict[triplet_types[i]] = [[mean_errors[i], std_errors[i], true_means[i], true_stds[i],
+                                                           mean_predictions[i], std_predictions[i]]]
 
             for key in bond_type_dict:
                 bond_type_dict[key] = np.array(bond_type_dict[key])
@@ -227,60 +385,133 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
 
             # Plotting
             # Plot error vs true distance
-            plt.plot(true_distances, errors, 'bo', markersize=0.5)
-            plt.title("Error vs True Atomic Pairwise Distances")
-            plt.ylabel("|True - Predicted|")
-            plt.xlabel("True")
-            plt.ylim((0.0, 4.0))
-            plt.savefig(os.path.join(args.save_dir, "error-vs-distance"))
-            plt.clf()
+            true_list = [true_means, true_stds]
+            errors_list = [mean_errors, std_errors]
+            predictions_list = [mean_predictions, std_predictions]
+            string_list = ["mean", "std"]
+            x_lim_list = [(0.0, 10.0), (0.0, 1.7)]
+            y_lim_1_list = [(0.0, 4.0), (0.0, 1.7)]
+            y_lim_2_list = [(0.0, 10.0), (0.0, 1.7)]
 
-            # Plot log error vs log true distance
-            plt.plot(np.log(true_distances), np.log(errors), 'bo', markersize=0.5)
-            plt.title("Error vs True Atomic Pairwise Distances")
-            plt.ylabel("log(|True - Predicted|)")
-            plt.xlabel("log(True)")
-            plt.xlim((0.0, 2.5))
-            plt.ylim((-15.0, 2.0))
-            plt.savefig(os.path.join(args.save_dir, "log-error-vs-log-distance"))
-            plt.clf()
+            for i in range(2):
+                simple_plot(array_x=true_list[i], array_y=errors_list[i],
+                            title="Error vs True Distance: " + string_list[i], x_label="True", y_label="Error",
+                            save_path=os.path.join(args.save_dir, string_list[i] + "-error-vs-distance"))
+
+                simple_plot(array_x=np.log(true_list[i]), array_y=np.log(errors_list[i]),
+                            title="Log Error vs Log True Distance: " + string_list[i], x_label="Log True",
+                            y_label="Log Error",
+                            save_path=os.path.join(args.save_dir, string_list[i] + "-log-error-vs-log-distance"))
+
+                simple_plot(array_x=shortest_paths, array_y=errors_list[i],
+                            title="Error vs Shortest Path Length: " + string_list[i], x_label="Shortest Path Length",
+                            y_label="Error",
+                            save_path=os.path.join(args.save_dir, string_list[i] + "-error-vs-path-length"),
+                            y_lim=(0.0, 4.0))
+
+                simple_plot(array_x=true_list[i], array_y=shortest_paths,
+                            title="True Distance vs Shortest Path Length: " + string_list[i], x_label="True Distance",
+                            y_label="Shortest Path Length",
+                            save_path=os.path.join(args.save_dir, string_list[i] + "-path-length-vs-distance"))
+
+                simple_plot(array_x=true_list[i], array_y=predictions_list[i],
+                            title="Prediction vs True Distance: " + string_list[i], x_label="True Distance",
+                            y_label="Prediction",
+                            save_path=os.path.join(args.save_dir, string_list[i] + "-prediction-vs-distance"))
+
+                # Plot error vs true distance for each bond type
+                for key in bond_type_dict:
+                    double_axis_plot(array_x=bond_type_dict[key][:, 2 + i], array_y_1=bond_type_dict[key][:, 0 + i],
+                                     array_y_2=bond_type_dict[key][:, 4 + i],
+                                     title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
+                                     x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
+                                     save_path=os.path.join(args.save_dir, string_list[i] +
+                                                            "-error-vs-distance-" + key), x_lim=x_lim_list[i],
+                                     y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
+
+                for key in triplet_dict:
+                    double_axis_plot(array_x=triplet_dict[key][:, 2 + i], array_y_1=triplet_dict[key][:, 0 + i],
+                                     array_y_2=triplet_dict[key][:, 4 + i],
+                                     title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
+                                     x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
+                                     save_path=os.path.join(args.save_dir, string_list[i] +
+                                                            "-error-vs-distance-" + key), x_lim=x_lim_list[i],
+                                     y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
+
+        else:
+            loss_avg = loss_sum / batch_count
+            debug("Test loss avg = {:.4e}".format(loss_avg))
+
+            # Convert to numpy
+            errors = np.array(errors)
+            true_distances = np.array(true_distances)
+            shortest_paths = np.array(shortest_paths)
+            predictions = np.array(predictions)
+
+            # Load items into bond type dictionary
+            for i in range(len(bond_types)):
+                if bond_types[i] in bond_type_dict:
+                    bond_type_dict[bond_types[i]].append([errors[i], true_distances[i], predictions[i]])
+                else:
+                    bond_type_dict[bond_types[i]] = [[errors[i], true_distances[i], predictions[i]]]
+
+            for i in range(len(triplet_types)):
+                if triplet_types[i] is not None:
+                    if triplet_types[i] in triplet_dict:
+                        triplet_dict[triplet_types[i]].append([errors[i], true_distances[i], predictions[i]])
+                    else:
+                        triplet_dict[triplet_types[i]] = [[errors[i], true_distances[i], predictions[i]]]
+
+            for key in bond_type_dict:
+                bond_type_dict[key] = np.array(bond_type_dict[key])
+
+            for key in triplet_dict:
+                triplet_dict[key] = np.array(triplet_dict[key])
+
+            # Plotting
+            # Plot error vs true distance
+            simple_plot(array_x=true_distances, array_y=errors, title="Error vs True Distance",
+                        x_label="True", y_label="Error", save_path=os.path.join(args.save_dir, "error-vs-distance"),
+                        y_lim=(0.0, 4.0))
+
+            simple_plot(array_x=np.log(true_distances), array_y=np.log(errors),
+                        title="Log Error vs Log True Distance", x_label="Log True", y_label="Log Error",
+                        save_path=os.path.join(args.save_dir, "log-error-vs-log-distance"), x_lim=(0.0, 2.5),
+                        y_lim=(-15.0, 2.0))
+
+            simple_plot(array_x=shortest_paths, array_y=errors, title="Error vs Shortest Path Length",
+                        x_label="Shortest Path Length", y_label="Error",
+                        save_path=os.path.join(args.save_dir, "error-vs-path-length"), y_lim=(0.0, 4.0))
+
+            simple_plot(array_x=true_distances, array_y=shortest_paths,
+                        title="Shortest Path Length vs True Distance", x_label="True Distance",
+                        y_label="Shortest Path Length",
+                        save_path=os.path.join(args.save_dir, "path-length-vs-distance"))
+
+            simple_plot(array_x=true_distances, array_y=predictions, title="Prediction vs True Distance",
+                        x_label="True Distance", y_label="Prediction",
+                        save_path=os.path.join(args.save_dir, "prediction-vs-distance"))
 
             # Plot error vs true distance for each bond type
             for key in bond_type_dict:
-                plt.plot(bond_type_dict[key][:, 1], bond_type_dict[key][:, 0], 'bo', markersize=0.5)
-                plt.title("Error vs True Atomic Pairwise Distances: " + key)
-                plt.ylabel("|True - Predicted|")
-                plt.xlabel("True")
-                plt.ylim((0.0, 4.0))
-                plt.savefig(os.path.join(args.save_dir, "error-vs-distance-" + key))
-                plt.clf()
+                double_axis_plot(array_x=bond_type_dict[key][:, 1], array_y_1=bond_type_dict[key][:, 0],
+                                 array_y_2=bond_type_dict[key][:, 2],
+                                 title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
+                                 y_label_1="Error", y_label_2="Predicted",
+                                 save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
+                                 y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
 
             # Plot error vs true distance for each triplet type
             for key in triplet_dict:
-                plt.plot(triplet_dict[key][:, 1], triplet_dict[key][:, 0], 'bo', markersize=0.5)
-                plt.title("Error vs True Atomic Pairwise Distances: " + key)
-                plt.ylabel("|True - Predicted|")
-                plt.xlabel("True")
-                plt.ylim((0.0, 4.0))
-                plt.savefig(os.path.join(args.save_dir, "error-vs-distance-" + key))
-                plt.clf()
+                double_axis_plot(array_x=triplet_dict[key][:, 1], array_y_1=triplet_dict[key][:, 0],
+                                 array_y_2=triplet_dict[key][:, 2],
+                                 title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
+                                 y_label_1="Error", y_label_2="Predicted",
+                                 save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
+                                 y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
 
-            # Plot error vs shortest path
-            plt.plot(shortest_paths, errors, 'bo', markersize=0.5)
-            plt.title("Error vs Atomic Pairwise Shortest Paths")
-            plt.ylabel("|True - Predicted|")
-            plt.xlabel("Shortest Path")
-            plt.ylim((0.0, 4.0))
-            plt.savefig(os.path.join(args.save_dir, "error-vs-path-length"))
-            plt.clf()
-
-            # Plot shortest path vs distance
-            plt.plot(true_distances, shortest_paths, 'bo', markersize=0.5)
-            plt.title("Error vs Atomic Pairwise Shortest Paths")
-            plt.ylabel("Shortest Path")
-            plt.xlabel("True Distance")
-            plt.savefig(os.path.join(args.save_dir, "path-length-vs-distance"))
-            plt.clf()
-
-            # Save errors numpy array
+            # Save errors as numpy array
             np.save(os.path.join(args.save_dir, "errors"), errors)
+
+
+

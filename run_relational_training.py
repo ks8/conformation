@@ -1,6 +1,7 @@
 """ Run relational network training. """
-from conformation.run_relational_training import run_relational_training, Args
 from conformation.create_logger import create_logger
+from conformation.run_relational_training import run_relational_training
+from conformation.train_args_relational import Args
 
 if __name__ == '__main__':
     args = Args().parse_args()

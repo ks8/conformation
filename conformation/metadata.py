@@ -27,6 +27,7 @@ class Args(Tap):
     cnf: bool = False  # Whether or not to produce metadata for conditional normalizing flow training
     graph_model_path: str = None  # Path to saved graph model (cnf = True)
     smiles_dir: str = None  # Path to directory containing smiles strings (mpnn or cnf = True)
+    binary_dir: str = None  # Path to directory containing RDKit mol binary files (mpnn = True)
     atom_types: List[int] = [1, 6, 7, 8, 9]  # Graph neural net allowed atom types (cnf = True)
     bond_types: List[float] = [0., 1., 1.5, 2., 3.]  # Graph neural net allowed bond types (cnf = True)
 
@@ -67,7 +68,8 @@ def metadata(args: Args) -> None:
                 molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
                     smiles = tmp.readlines()[0].split()[0]
-                data.append({'smiles': smiles, 'target': path, 'uid': uid})
+                binary_path = os.path.join(args.binary_dir, molecule_name + ".bin")
+                data.append({'smiles': smiles, 'target': path, 'uid': uid, 'binary': binary_path})
                 uid_dict[uid] = smiles
                 uid += 1
             elif args.cnf:

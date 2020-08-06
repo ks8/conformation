@@ -1,15 +1,25 @@
 """ PyTorch dataset classes for molecular data. """
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 from rdkit import Chem
-from rdkit.Chem import rdmolops
+from rdkit.Chem import AllChem, rdmolops, rdPartialCharges, rdForceFieldHelpers, rdchem
 from scipy import sparse
 import torch
 from torch.utils.data import Dataset
 
 from conformation.distance_matrix import distmat_to_vec
 from conformation.graph_data import Data
+
+
+def to_one_hot(x: int, vals: Union[List, range]) -> List:
+    """
+    Return a one-hot vector.
+    :param x: Data integer.
+    :param vals: List of possible data values.
+    :return: One-hot vector as list.
+    """
+    return [x == v for v in vals]
 
 
 class MolDataset(Dataset):
@@ -40,8 +50,16 @@ class GraphDataset(Dataset):
     Dataset class for loading molecular graphs and pairwise distance targets.
     """
 
+    # noinspection PyUnresolvedReferences
     def __init__(self, metadata: List[Dict[str, str]], atom_types: List[int] = None, bond_types: List[float] = None,
-                 target: bool = True, max_path_length: int = 10):
+                 target: bool = True, max_path_length: int = 10, atomic_num: bool = True, partial_charge: bool = True,
+                 mmff_atom_types_one_hot: bool = True, valence_types: List[int] = None, valence: bool = True,
+                 aromatic: bool = True, hybridization: bool = True, assign_stereo: bool = True,
+                 charge_types: List[int] = None, formal_charge: bool = True, r_covalent: bool = True,
+                 r_vanderwals: bool = True, default_valence: bool = True, max_ring_size: int = 8,
+                 rings: bool = True, chirality: bool = True, mmff94_atom_types: List[int] = None,
+                 hybridization_types: List[Chem.HybridizationType] = None,
+                 chi_types: List[rdchem.ChiralType] = None):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
@@ -49,15 +67,79 @@ class GraphDataset(Dataset):
         :param bond_types: List of allowed bond types.
         :param target: Whether or not to load target data from metadata into Data() object.
         :param max_path_length: Maximum shortest path length between any two atoms in a molecule in the dataset.
+        :param partial_charge: Whether or not to include Gasteiger Charge as a vertex feature.\
+        :param mmff_atom_types_one_hot: Whether or not to include MMFF94 atom types as vertex features.
+        :param valence_types: List of allowed total valence numbers.
+        :param valence: Whether or not to include total valence as a vertex feature.
+        :param aromatic: Whether or not to include aromaticity as a vertex feature.
+        :param hybridization: Whether or not to include hybridization as a vertex feature.
+        :param assign_stereo: Whether or not to include stereochemistry information.
+        :param charge_types: Formal charge types.
+        :param formal_charge: Whether or not to include formal charge as a vertex feature.
+        :param r_covalent: Whether or not to include covalent radius as a vertex feature.
+        :param r_vanderwals: Whether or not to include vanderwals radius as a vertex feature.
+        :param default_valence: Whether or not to include default valence as a vertex feature.
+        :param max_ring_size: Maximum ring size.
+        :param rings: Whether or not to include ring size as a vertex feature.
+        :param chirality: Whether or not to include chirality as a vertex feature.
+        :param mmff94_atom_types: MMFF94 atom types.
+        :param hybridization_types: Hybridization types.
+        :param chi_types: Chiral tag types.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
             self.bond_types = [0., 1., 1.5, 2., 3.]
+        else:
+            self.bond_types = bond_types
         if atom_types is None:
             self.atom_types = [1, 6, 7, 8, 9]
+        else:
+            self.atom_types = atom_types
         self.metadata = metadata
         self.target = target
         self.max_path_length = max_path_length
+        self.atomic_num = atomic_num
+        self.partial_charge = partial_charge
+        if mmff94_atom_types is None:
+            self.mmff94_atom_types = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26,
+                                      27, 28, 29, 30, 31, 32, 33, 37, 38, 39, 40, 42, 43, 44, 46, 48, 59, 62, 63, 64,
+                                      65, 66, 70, 71, 72, 74, 75, 78]
+        else:
+            self.mmff94_atom_types = mmff94_atom_types
+        self.mmff_atom_types_one_hot = mmff_atom_types_one_hot
+        if valence_types is None:
+            self.valence_types = [1, 2, 3, 4, 5, 6]
+        else:
+            self.valence_types = valence_types
+        self.valence = valence
+        self.aromatic = aromatic
+        if hybridization_types is None:
+            self.hybridization_types = [Chem.HybridizationType.S,
+                                        Chem.HybridizationType.SP,
+                                        Chem.HybridizationType.SP2,
+                                        Chem.HybridizationType.SP3,
+                                        Chem.HybridizationType.SP3D,
+                                        Chem.HybridizationType.SP3D2,
+                                        Chem.HybridizationType.UNSPECIFIED]
+        else:
+            self.hybridization_types = hybridization_types
+        self.hybridization = hybridization
+        self.assign_stereo = assign_stereo
+        if charge_types is None:
+            self.charge_types = [-1, 0, 1]
+        else:
+            self.charge_types = charge_types
+        self.formal_charge = formal_charge
+        self.r_covalent = r_covalent
+        self.r_vanderwals = r_vanderwals
+        self.default_valence = default_valence
+        self.max_ring_size = max_ring_size
+        self.rings = rings
+        if chi_types is None:
+            self.chi_types = list(rdchem.ChiralType.values.values())
+        else:
+            self.chi_types = chi_types
+        self.chirality = chirality
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -71,9 +153,11 @@ class GraphDataset(Dataset):
         data = Data()
 
         # Molecule from SMILES string
-        smiles = self.metadata[idx]['smiles']  # Read smiles string
-        mol = Chem.MolFromSmiles(smiles)
-        mol = Chem.AddHs(mol)
+        # smiles = self.metadata[idx]['smiles']  # Read smiles string
+        # mol = Chem.MolFromSmiles(smiles)
+        # mol = Chem.AddHs(mol)
+        # noinspection PyUnresolvedReferences
+        mol = Chem.Mol(open(self.metadata[idx]['binary'], "rb").read())
         num_atoms = mol.GetNumAtoms()
 
         # Compute edge connectivity in COO format corresponding to a complete graph on num_nodes
@@ -118,17 +202,73 @@ class GraphDataset(Dataset):
                      range(len(full_edges))]
         data.edge_attr = torch.tensor(edge_attr, dtype=torch.float)
 
-        # Vertex features: one-hot representation of atomic number
-        # Create one-hot encoding
-        one_hot_vertex_features = np.zeros((len(self.atom_types), len(self.atom_types)))
-        np.fill_diagonal(one_hot_vertex_features, 1.)
-        atom_to_one_hot = dict()
-        for i in range(len(self.atom_types)):
-            atom_to_one_hot[self.atom_types[i]] = one_hot_vertex_features[i]
+        # Vertex features
+        # List to hold all vertex features
+        vertex_features = []
 
-        # Add the vertex features as one-hot vectors
-        one_hot_features = np.array([atom_to_one_hot[atom.GetAtomicNum()] for atom in mol.GetAtoms()])
-        data.x = torch.tensor(one_hot_features, dtype=torch.float)
+        pt = Chem.GetPeriodicTable()
+
+        if self.partial_charge:
+            rdPartialCharges.ComputeGasteigerCharges(mol)
+
+        mmff_p = None
+        if self.mmff_atom_types_one_hot:
+            # AllChem.EmbedMolecule(mol, maxAttempts=100000)
+            # AllChem.MMFFOptimizeMolecule(mol)
+            mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol)
+
+        if self.assign_stereo:
+            rdmolops.AssignStereochemistryFrom3D(mol)
+
+        for i in range(num_atoms):
+            atom = mol.GetAtomWithIdx(i)
+            atom_feature = []
+
+            if self.atomic_num:
+                atom_feature += to_one_hot(atom.GetAtomicNum(), self.atom_types)
+
+            if self.valence:
+                atom_feature += to_one_hot(atom.GetTotalValence(), self.valence_types)
+
+            if self.aromatic:
+                atom_feature += [atom.GetIsAromatic()]
+
+            if self.hybridization:
+                atom_feature += to_one_hot(atom.GetHybridization(), self.hybridization_types)
+
+            if self.partial_charge:
+                gc = float(atom.GetProp('_GasteigerCharge'))
+                if not np.isfinite(gc):
+                    gc = 0.0
+                atom_feature += [gc]
+
+            if self.formal_charge:
+                atom_feature += to_one_hot(atom.GetFormalCharge(), self.charge_types)
+
+            if self.r_covalent:
+                atom_feature += [pt.GetRcovalent(atom.GetAtomicNum())]
+
+            if self.r_vanderwals:
+                atom_feature += [pt.GetRvdw(atom.GetAtomicNum())]
+
+            if self.default_valence:
+                atom_feature += to_one_hot(pt.GetDefaultValence(atom.GetAtomicNum()), self.valence_types)
+
+            if self.rings:
+                atom_feature += [atom.IsInRingSize(r) for r in range(3, self.max_ring_size + 1)]
+
+            if self.chirality:
+                atom_feature += to_one_hot(atom.GetChiralTag(), self.chi_types)
+
+            if self.mmff_atom_types_one_hot:
+                if mmff_p is None:
+                    atom_feature += [0] * len(self.mmff94_atom_types)
+                else:
+                    atom_feature += to_one_hot(mmff_p.GetMMFFAtomType(i), self.mmff94_atom_types)
+
+            vertex_features.append(atom_feature)
+
+        data.x = torch.tensor(vertex_features, dtype=torch.float)
 
         # Target
         if self.target:

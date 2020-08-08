@@ -15,6 +15,16 @@ class Args(Tap):
     checkpoint_path: str = None  # Directory of checkpoint to load saved model
     save_dir: str  # Save directory
     num_epochs: int  # Number of training epochs
+    num_layers: int = 10  # Number of layers
+    std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation
+    final_output_size: int = 1  # Size of output layer
+    alpha: float = 20.0  # How much to weight positive std prediction losses
+    batch_size: int = 10  # Batch size
+    lr: float = 1e-4  # Learning rate
+    hidden_size: int = 256  # Hidden size
+    final_linear_size: int = 1024  # Size of last linear layer
+    cuda: bool = False  # Cuda availability
+    log_frequency: int = 10  # Log frequency
     atomic_num: bool = True  # Whether or not to include atomic number as vertex feature
     atom_types: List[int] = [1, 6, 7, 8]  # Allowed atom types
     num_vertex_features: int = None  # Number of vertex features (set automatically)
@@ -37,16 +47,6 @@ class Args(Tap):
     rings: bool = True  # Whether or not to include rings as vertex feature
     # noinspection PyUnresolvedReferences
     chirality: bool = True  # Whether or not to include chirality as vertex feature
-    std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation
-    final_output_size: int = 1  # Size of output layer
-    alpha: float = 20.0  # How much to weight positive std prediction losses
-    num_layers: int = 10  # Number of layers
-    batch_size: int = 10  # Batch size
-    lr: float = 1e-4  # Learning rate
-    hidden_size: int = 256  # Hidden size
-    final_linear_size: int = 1024  # Size of last linear layer
-    cuda: bool = False  # Cuda availability
-    log_frequency: int = 10  # Log frequency
 
     def __init__(self):
         super(Args, self).__init__()

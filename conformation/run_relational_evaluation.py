@@ -42,8 +42,8 @@ class Args(Tap):
     distance_analysis_hi: float = 2.0  # Upper distance analysis bound
 
 
-def simple_plot(array_x: np.ndarray, array_y: np.ndarray, x_label: str, y_label: str, save_path: str,
-                size: float = 0.5, x_lim: Tuple = None, y_lim: Tuple = None) -> None:
+def simple_plot(array_x: np.ndarray, array_y: np.ndarray, x_label: str, y_label: str, save_path: str, size: float = 0.5,
+                x_lim: Tuple = None, y_lim: Tuple = None, color: str = "b") -> None:
     """
     Plot one array against another.
     :param array_x: Data measured on the x-axis.
@@ -54,10 +54,11 @@ def simple_plot(array_x: np.ndarray, array_y: np.ndarray, x_label: str, y_label:
     :param size: Marker size.
     :param x_lim: x-axis limits.
     :param y_lim: y-axis limits.
+    :param color: Color.
     :return: None.
     """
-    sns.set()
-    fig = sns.jointplot(array_x, array_y, xlim=x_lim, ylim=y_lim, s=size).set_axis_labels(x_label, y_label)
+    sns.set_style("dark")
+    fig = sns.jointplot(array_x, array_y, xlim=x_lim, ylim=y_lim, s=size, color=color).set_axis_labels(x_label, y_label)
     fig.savefig(save_path)
     plt.close()
 
@@ -124,7 +125,9 @@ def tensor_to_list(tensor: torch.Tensor, destination_list: List) -> None:
 
 def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List, bond_types: List,
                              triplet_types: List, carbon_carbon_ring_types: List, carbon_carbon_non_ring_types,
-                             carbon_carbon_chain_types: List, carbon_carbon_no_chain_types: List) -> None:
+                             carbon_carbon_chain_types: List, carbon_carbon_no_chain_types: List,
+                             carbon_carbon_aromatic_types: List, carbon_carbon_non_aromatic_types: List,
+                             carbon_carbon_quadruplet_types: List) -> None:
     """
     Compute shortest path, bond type information for each edge and add to relevant lists.
     :param batch: Data batch.
@@ -136,6 +139,9 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
     :param carbon_carbon_non_ring_types: List containing bond types for CC "bonds" not in a ring.
     :param carbon_carbon_chain_types: List containing bond types for CC "bonds" in a linear chain.
     :param carbon_carbon_no_chain_types: List containing bond types for CC "bonds" not in a linear chain.
+    :param carbon_carbon_aromatic_types: List containing bond types for CC "bonds" in aromatic rings.
+    :param carbon_carbon_non_aromatic_types: List containing bond types for CC "bonds" in non-aromatic rings.
+    :param carbon_carbon_quadruplet_types: List containing bond types for "bonds" with shortest path length 3.
     :return: None.
     """
     for i in range(batch.uid.shape[0]):
@@ -171,10 +177,21 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                     carbon_carbon_ring_types.append(key)
                     carbon_carbon_non_ring_types.append(None)
 
+                    if mol.GetAtoms()[int(m)].GetIsAromatic() and mol.GetAtoms()[int(n)].GetIsAromatic():
+                        key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-aromatic"
+                        carbon_carbon_aromatic_types.append(key)
+                        carbon_carbon_non_aromatic_types.append(None)
+                    else:
+                        key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-non-aromatic"
+                        carbon_carbon_aromatic_types.append(None)
+                        carbon_carbon_non_aromatic_types.append(key)
+
                 else:
                     key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-non-ring"
                     carbon_carbon_ring_types.append(None)
                     carbon_carbon_non_ring_types.append(key)
+                    carbon_carbon_aromatic_types.append(None)
+                    carbon_carbon_non_aromatic_types.append(None)
 
                 path = rdmolops.GetShortestPath(mol, int(m), int(n))
                 all_carbon = True
@@ -191,13 +208,25 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                     carbon_carbon_chain_types.append(None)
                     carbon_carbon_no_chain_types.append(key)
 
-                # TODO: Armoatic rings...
+                if path_len == 3:
+                    atom_intermediate_1 = mol.GetAtoms()[rdmolops.GetShortestPath(mol, int(m),
+                                                                                  int(n))[1]].GetSymbol()
+                    atom_intermediate_2 = mol.GetAtoms()[rdmolops.GetShortestPath(mol, int(m),
+                                                                                  int(n))[2]].GetSymbol()
+                    intermediates = sorted([atom_intermediate_1, atom_intermediate_2])
+                    key = atom_a + intermediates[0] + intermediates[1] + atom_b
+                    carbon_carbon_quadruplet_types.append(key)
+                else:
+                    carbon_carbon_quadruplet_types.append(None)
 
             else:
                 carbon_carbon_ring_types.append(None)
                 carbon_carbon_non_ring_types.append(None)
                 carbon_carbon_chain_types.append(None)
                 carbon_carbon_no_chain_types.append(None)
+                carbon_carbon_aromatic_types.append(None)
+                carbon_carbon_non_aromatic_types.append(None)
+                carbon_carbon_quadruplet_types.append(None)
 
 
 def create_bond_dictionary(types: List, dictionary: Dict, *args: np.ndarray) -> None:
@@ -305,12 +334,18 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
     carbon_carbon_non_ring_types = []
     carbon_carbon_chain_types = []
     carbon_carbon_no_chain_types = []
+    carbon_carbon_aromatic_types = []
+    carbon_carbon_non_aromatic_types = []
+    carbon_carbon_quadruplet_types = []
     bond_type_dict = dict()
     triplet_dict = dict()
     carbon_carbon_ring_dict = dict()
     carbon_carbon_non_ring_dict = dict()
     carbon_carbon_chain_dict = dict()
     carbon_carbon_no_chain_dict = dict()
+    carbon_carbon_aromatic_dict = dict()
+    carbon_carbon_non_aromatic_dict = dict()
+    carbon_carbon_quadruplet_dict = dict()
     with torch.no_grad():
         # Initialize lists and counters for mean + std predictions
         if loaded_args.final_output_size == 2:
@@ -364,7 +399,9 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                 # Compute shortest path length for each edge and append to relevant lists
                 path_and_bond_extraction(batch, uid_dict, shortest_paths, bond_types, triplet_types,
                                          carbon_carbon_ring_types, carbon_carbon_non_ring_types,
-                                         carbon_carbon_chain_types, carbon_carbon_no_chain_types)
+                                         carbon_carbon_chain_types, carbon_carbon_no_chain_types,
+                                         carbon_carbon_aromatic_types, carbon_carbon_non_aromatic_types,
+                                         carbon_carbon_quadruplet_types)
 
                 # Compute RMSE for means and stds
                 mean_error_sum += torch.sqrt_(loss_func(preds[:, 0], targets[:, 0])).item()
@@ -386,7 +423,9 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                 # Compute shortest path length for each edge and append to relevant lists
                 path_and_bond_extraction(batch, uid_dict, shortest_paths, bond_types, triplet_types,
                                          carbon_carbon_ring_types, carbon_carbon_non_ring_types,
-                                         carbon_carbon_chain_types, carbon_carbon_no_chain_types)
+                                         carbon_carbon_chain_types, carbon_carbon_no_chain_types,
+                                         carbon_carbon_aromatic_types, carbon_carbon_non_aromatic_types,
+                                         carbon_carbon_quadruplet_types)
 
                 # Compute RMSE loss
                 error_sum += torch.sqrt_(loss_func(preds, targets)).item()
@@ -419,8 +458,17 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                true_means, true_stds, mean_predictions, std_predictions)
         create_bond_dictionary(carbon_carbon_no_chain_types, carbon_carbon_no_chain_dict, mean_errors, std_errors,
                                true_means, true_stds, mean_predictions, std_predictions)
+        create_bond_dictionary(carbon_carbon_aromatic_types, carbon_carbon_aromatic_dict, mean_errors, std_errors,
+                               true_means, true_stds, mean_predictions, std_predictions)
+        create_bond_dictionary(carbon_carbon_non_aromatic_types, carbon_carbon_non_aromatic_dict, mean_errors,
+                               std_errors, true_means, true_stds, mean_predictions, std_predictions)
+        create_bond_dictionary(carbon_carbon_quadruplet_types, carbon_carbon_quadruplet_dict, mean_errors,
+                               std_errors, true_means, true_stds, mean_predictions, std_predictions)
 
         # Plotting
+        dictionaries_list = [bond_type_dict, triplet_dict, carbon_carbon_ring_dict, carbon_carbon_non_ring_dict,
+                             carbon_carbon_chain_dict, carbon_carbon_no_chain_dict, carbon_carbon_aromatic_dict,
+                             carbon_carbon_non_aromatic_dict, carbon_carbon_quadruplet_dict]
         true_list = [true_means, true_stds]
         errors_list = [mean_errors, std_errors]
         predictions_list = [mean_predictions, std_predictions]
@@ -451,23 +499,30 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                         save_path=os.path.join(args.save_dir, string_list[i] + "-prediction-vs-distance"))
 
             # Plot error vs true distance for each bond type
-            for key in bond_type_dict:
-                double_axis_plot(array_x=bond_type_dict[key][:, 2 + i], array_y_1=bond_type_dict[key][:, 0 + i],
-                                 array_y_2=bond_type_dict[key][:, 4 + i],
-                                 title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
-                                 x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
-                                 save_path=os.path.join(args.save_dir, string_list[i] +
-                                                        "-error-vs-distance-" + key), x_lim=x_lim_list[i],
-                                 y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
+            for j in range(len(dictionaries_list)):
+                for key in dictionaries_list[j]:
+                    double_axis_plot(array_x=dictionaries_list[j][key][:, 2 + i],
+                                     array_y_1=dictionaries_list[j][key][:, 0 + i],
+                                     array_y_2=dictionaries_list[j][key][:, 4 + i],
+                                     title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
+                                     x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
+                                     save_path=os.path.join(args.save_dir, key + "-" + string_list[i] +
+                                                            "-error-vs-distance"), x_lim=x_lim_list[i],
+                                     y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
 
-            for key in triplet_dict:
-                double_axis_plot(array_x=triplet_dict[key][:, 2 + i], array_y_1=triplet_dict[key][:, 0 + i],
-                                 array_y_2=triplet_dict[key][:, 4 + i],
-                                 title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
-                                 x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
-                                 save_path=os.path.join(args.save_dir, string_list[i] +
-                                                        "-error-vs-distance-" + key), x_lim=x_lim_list[i],
-                                 y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
+                    simple_plot(array_x=dictionaries_list[j][key][:, 2 + i],
+                                array_y=dictionaries_list[j][key][:, 0 + i],
+                                x_label="True Distance", y_label="Error",
+                                save_path=os.path.join(args.save_dir, key + "-" + string_list[i] +
+                                                       "-error-vs-distance"),
+                                x_lim=x_lim_list[i], y_lim=y_lim_1_list[i])
+
+                    simple_plot(array_x=dictionaries_list[j][key][:, 2 + i],
+                                array_y=dictionaries_list[j][key][:, 4 + i],
+                                x_label="True Distance", y_label="Predicted",
+                                save_path=os.path.join(args.save_dir, key + "-" + string_list[i] +
+                                                       "-prediction-vs-distance"),
+                                x_lim=x_lim_list[i], y_lim=y_lim_2_list[i])
 
     else:
         loss_avg = error_sum / batch_count
@@ -489,6 +544,16 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                predictions)
         create_bond_dictionary(carbon_carbon_no_chain_types, carbon_carbon_no_chain_dict, errors, true_distances,
                                predictions)
+        create_bond_dictionary(carbon_carbon_aromatic_types, carbon_carbon_aromatic_dict, errors, true_distances,
+                               predictions)
+        create_bond_dictionary(carbon_carbon_non_aromatic_types, carbon_carbon_non_aromatic_dict, errors,
+                               true_distances, predictions)
+        create_bond_dictionary(carbon_carbon_quadruplet_types, carbon_carbon_quadruplet_dict, errors,
+                               true_distances, predictions)
+
+        dictionaries_list = [bond_type_dict, triplet_dict, carbon_carbon_ring_dict, carbon_carbon_non_ring_dict,
+                             carbon_carbon_chain_dict, carbon_carbon_no_chain_dict, carbon_carbon_aromatic_dict,
+                             carbon_carbon_non_aromatic_dict, carbon_carbon_quadruplet_dict]
 
         # Plotting
         simple_plot(array_x=true_distances, array_y=errors, x_label="True", y_label="Error",
@@ -510,66 +575,24 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                     save_path=os.path.join(args.save_dir, "prediction-vs-distance"))
 
         # Plot error vs true distance for each bond type
-        for key in bond_type_dict:
-            double_axis_plot(array_x=bond_type_dict[key][:, 1], array_y_1=bond_type_dict[key][:, 0],
-                             array_y_2=bond_type_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-joint" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
+        for j in range(len(dictionaries_list)):
+            for key in dictionaries_list[j]:
+                double_axis_plot(array_x=dictionaries_list[j][key][:, 1], array_y_1=dictionaries_list[j][key][:, 0],
+                                 array_y_2=dictionaries_list[j][key][:, 2],
+                                 title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
+                                 y_label_1="Error", y_label_2="Predicted",
+                                 save_path=os.path.join(args.save_dir, key + "-error-vs-distance-joint"),
+                                 x_lim=(0.0, 10.0), y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
 
-            simple_plot(array_x=bond_type_dict[key][:, 1], array_y=bond_type_dict[key][:, 0], x_label="True Distance",
-                        y_label="Error", save_path=os.path.join(args.save_dir, "error-vs-distance-" + key),
-                        x_lim=(0.0, 10.0), y_lim=(0.0, 4.0), size=2)
+                simple_plot(array_x=dictionaries_list[j][key][:, 1], array_y=dictionaries_list[j][key][:, 0],
+                            x_label="True Distance",
+                            y_label="Error", save_path=os.path.join(args.save_dir, key + "-error-vs-distance"),
+                            x_lim=(0.0, 10.0), y_lim=(0.0, 4.0), color="r")
 
-            simple_plot(array_x=bond_type_dict[key][:, 1], array_y=bond_type_dict[key][:, 2], x_label="True Distance",
-                        y_label="Predicted", save_path=os.path.join(args.save_dir, "prediction-vs-distance-" + key),
-                        x_lim=(0.0, 10.0), y_lim=(0.0, 10.0), size=2)
-
-        # Plot error vs true distance for each triplet type
-        for key in triplet_dict:
-            double_axis_plot(array_x=triplet_dict[key][:, 1], array_y_1=triplet_dict[key][:, 0],
-                             array_y_2=triplet_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
-
-        # Plot error vs true distance for each carbon-carbon ring type
-        for key in carbon_carbon_ring_dict:
-            double_axis_plot(array_x=carbon_carbon_ring_dict[key][:, 1], array_y_1=carbon_carbon_ring_dict[key][:, 0],
-                             array_y_2=carbon_carbon_ring_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
-
-        for key in carbon_carbon_non_ring_dict:
-            double_axis_plot(array_x=carbon_carbon_non_ring_dict[key][:, 1],
-                             array_y_1=carbon_carbon_non_ring_dict[key][:, 0],
-                             array_y_2=carbon_carbon_non_ring_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
-
-        for key in carbon_carbon_chain_dict:
-            double_axis_plot(array_x=carbon_carbon_chain_dict[key][:, 1],
-                             array_y_1=carbon_carbon_chain_dict[key][:, 0],
-                             array_y_2=carbon_carbon_chain_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
-
-        for key in carbon_carbon_no_chain_dict:
-            double_axis_plot(array_x=carbon_carbon_no_chain_dict[key][:, 1],
-                             array_y_1=carbon_carbon_no_chain_dict[key][:, 0],
-                             array_y_2=carbon_carbon_no_chain_dict[key][:, 2],
-                             title="Error and Predicted vs True Distance: " + key, x_label="True Distance",
-                             y_label_1="Error", y_label_2="Predicted",
-                             save_path=os.path.join(args.save_dir, "error-vs-distance-" + key), x_lim=(0.0, 10.0),
-                             y_lim_1=(0.0, 4.0), y_lim_2=(0.0, 10.0))
+                simple_plot(array_x=dictionaries_list[j][key][:, 1], array_y=dictionaries_list[j][key][:, 2],
+                            x_label="True Distance",
+                            y_label="Predicted", save_path=os.path.join(args.save_dir, key + "-prediction-vs-distance"),
+                            x_lim=(0.0, 10.0), y_lim=(0.0, 10.0))
 
         # Save errors as numpy array
         np.save(os.path.join(args.save_dir, "errors"), errors)

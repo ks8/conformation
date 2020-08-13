@@ -352,13 +352,13 @@ class MPMLPOutNet(nn.Module):
     def __init__(self, vert_f_in, edge_f_in, MAX_N,
                  layer_n, internal_d_vert,
                  init_noise=0.0,
-                 force_lin_init=False, dim_out=4,
+                 force_lin_init=False, dim_out=1,
                  final_d_out=1024,
                  final_layer_n=1,
                  force_bias_zero=True,
-                 edge_mat_norm=False,
+                 edge_mat_norm=True,
                  force_edge_zero=False,
-                 mpconfig={},
+                 mpconfig={"name": "EVMP"},
                  logsoftmax_out=False,
                  chan_out=1,
                  vert_mask_use=True,
@@ -369,7 +369,7 @@ class MPMLPOutNet(nn.Module):
                  mask_val_edges=False,
                  combine_graph_in=False,
                  log_invalid_offset=-1e4,
-                 e_bn_pre_mlp=False
+                 e_bn_pre_mlp=True
 
                  ):
         """
@@ -450,8 +450,7 @@ class MPMLPOutNet(nn.Module):
                     if m.bias is not None:
                         nn.init.constant_(m.bias, 0)
 
-    def forward(self, v_in, e_in, graph_conn_in,
-                vert_mask, possible_val):
+    def forward(self, v_in, e_in, vert_mask):
         """
         output is:
         [BATCH_N, FLATTEN_LENGHED_N, LABEL_LEVELS, M]
@@ -486,54 +485,54 @@ class MPMLPOutNet(nn.Module):
 
         v_in_bn = last_bn(self.input_v_bn, v_in, v_mask)
         e_in_bn = last_bn(self.input_e_bn, e_in, e_mask)
-        #
-        # # noinspection PyTypeChecker
-        # v = F.pad(v_in_bn, (0, self.internal_d_vert - v_in_bn.shape[-1]), "constant", 0)
-        #
-        # if self.vert_mask_use:
-        #     v = v * v_mask
-        #
-        # # noinspection PyTypeChecker
-        # e = F.pad(e_in_bn,
-        #           (0, self.internal_d_vert - e_in_bn.shape[-1]),
-        #           "constant", 0)
-        # if self.edge_mask_use:
-        #     e = e * e_mask
-        #
-        # e_new, v = self.mp(e, v, e_mask, v_mask)
-        #
-        # if self.combine_graph_in:
-        #     e_new = torch.cat([e_new, graph_conn_in], -1)
-        # if self.e_bn_pre_mlp:
-        #     e_new = last_bn(self.pre_mlp_bn, e_new, e_mask)
-        #
-        # e_est = self.final_out(self.final_mlp_out(e_new))
-        #
-        # e_est = e_est.unsqueeze(-1)
-        #
-        # assert e_est.shape[-1] == self.chan_out
-        #
-        # if self.mask_val_edges:
-        #     e_est = e_est + (1.0 - possible_val.unsqueeze(-1)) * self.log_invalid_offset
-        #
-        # a_flat = e_est.reshape(BATCH_N, -1, self.dim_out, self.chan_out)
-        # a_triu_flat = a_flat[:, self.triu_idx, :, :]
-        #
-        # if self.logsoftmax_out:
-        #     a_triu_flatter = a_triu_flat.reshape(BATCH_N, -1, 1)
-        #     if self.logsoftmax_out:
-        #         a_nonlin = F.log_softmax(a_triu_flatter, dim=1)
-        #     elif self.softmax_out:
-        #         a_nonlin = F.softmax(a_triu_flatter, dim=1)
-        #     else:
-        #         raise ValueError()
-        #
-        #     a_nonlin = a_nonlin.reshape(BATCH_N, -1, self.dim_out, 1)
-        # else:
-        #
-        #     a_nonlin = a_triu_flat
-        #
-        # if self.pos_out:
-        #     a_nonlin = F.relu(a_nonlin)
-        #
-        # return a_nonlin
+
+        # noinspection PyTypeChecker
+        v = F.pad(v_in_bn, (0, self.internal_d_vert - v_in_bn.shape[-1]), "constant", 0)
+
+        if self.vert_mask_use:
+            v = v * v_mask
+
+        # noinspection PyTypeChecker
+        e = F.pad(e_in_bn,
+                  (0, self.internal_d_vert - e_in_bn.shape[-1]),
+                  "constant", 0)
+        if self.edge_mask_use:
+            e = e * e_mask
+
+        e_new, v = self.mp(e, v, e_mask, v_mask)
+
+        if self.combine_graph_in:
+            e_new = torch.cat([e_new, graph_conn_in], -1)
+        if self.e_bn_pre_mlp:
+            e_new = last_bn(self.pre_mlp_bn, e_new, e_mask)
+
+        e_est = self.final_out(self.final_mlp_out(e_new))
+
+        e_est = e_est.unsqueeze(-1)
+
+        assert e_est.shape[-1] == self.chan_out
+
+        if self.mask_val_edges:
+            e_est = e_est + (1.0 - possible_val.unsqueeze(-1)) * self.log_invalid_offset
+
+        a_flat = e_est.reshape(BATCH_N, -1, self.dim_out, self.chan_out)
+        a_triu_flat = a_flat[:, self.triu_idx, :, :]
+
+        if self.logsoftmax_out:
+            a_triu_flatter = a_triu_flat.reshape(BATCH_N, -1, 1)
+            if self.logsoftmax_out:
+                a_nonlin = F.log_softmax(a_triu_flatter, dim=1)
+            elif self.softmax_out:
+                a_nonlin = F.softmax(a_triu_flatter, dim=1)
+            else:
+                raise ValueError()
+
+            a_nonlin = a_nonlin.reshape(BATCH_N, -1, self.dim_out, 1)
+        else:
+
+            a_nonlin = a_triu_flat
+
+        if self.pos_out:
+            a_nonlin = F.relu(a_nonlin)
+
+        return a_nonlin

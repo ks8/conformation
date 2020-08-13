@@ -12,8 +12,10 @@ from torch.optim import Adam
 from tqdm import tqdm, trange
 
 from conformation.dataloader import DataLoader
+from conformation.dataloader_jonas import DataLoader as DataLoaderImproved
 from conformation.dataset import GraphDataset
 from conformation.relational import RelationalNetwork
+from conformation.relational_jonas import MPMLPOutNet
 from conformation.relational_utils import load_relational_checkpoint
 from conformation.train_args_relational import Args
 from conformation.utils import param_count
@@ -40,30 +42,58 @@ def train(model: nn.Module, optimizer: Adam, data: DataLoader, args: Args, logge
     model.train()
     loss_sum, batch_count = 0, 0
     for batch in tqdm(data, total=len(data)):
+
         # Move batch to cuda
-        batch.x = batch.x.cuda()
-        batch.edge_attr = batch.edge_attr.cuda()
+        if args.improved_architecture:
+            v_in, e_in, mask, targets = batch
+            if args.cuda:
+                v_in = v_in.cuda()
+                e_in = e_in.cuda()
+                mask = mask.cuda()
+
+        else:
+            if args.cuda:
+                batch.x = batch.x.cuda()
+                batch.edge_attr = batch.edge_attr.cuda()
 
         # Zero gradients
         model.zero_grad()
 
         # Extract targets
         if args.std:
-            targets = batch.y.cuda()
+            if args.improved_architecture:
+                print("TODO")
+                exit()
+            else:
+                targets = batch.y.cuda()
         else:
-            targets = batch.y.cuda()[:, 0].unsqueeze(1)
+            if args.improved_architecture:
+                targets = targets.cuda()[:, :, 0]
+            else:
+                targets = batch.y.cuda()[:, 0].unsqueeze(1)
 
         # Generate predictions
-        preds = model(batch)
+        if args.improved_architecture:
+            # noinspection PyUnboundLocalVariable
+            preds = model(v_in, e_in, mask)
+        else:
+            preds = model(batch)
+
+        preds = preds.squeeze(3).squeeze(2)
+        targets = targets[:, :preds.shape[1]]  # TODO: confirm that this is the right order of targets and edges
 
         # Compute loss
         if args.std:
             loss = loss_func(preds[:, 0], targets[:, 0]) + args.alpha * loss_func(preds[:, 1], targets[:, 1])
         else:
             loss = loss_func(preds, targets)
+
         loss_sum += loss.item()
         batch_count += 1
-        n_iter += batch.num_graphs
+        if args.improved_architecture:
+            n_iter += targets.shape[0]
+        else:
+            n_iter += batch.num_graphs
 
         # Backpropagation
         loss.backward()
@@ -161,7 +191,8 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                               r_covalent=args.r_covalent, r_vanderwals=args.r_vanderwals,
                               default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                               chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
-                              hybridization_types=args.hybridization_types, chi_types=args.chi_types)
+                              hybridization_types=args.hybridization_types, chi_types=args.chi_types,
+                              improved_architecture=args.improved_architecture)
     val_data = GraphDataset(validation_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                             max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                             partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -171,7 +202,8 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                             r_covalent=args.r_covalent, r_vanderwals=args.r_vanderwals,
                             default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                             chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
-                            hybridization_types=args.hybridization_types, chi_types=args.chi_types)
+                            hybridization_types=args.hybridization_types, chi_types=args.chi_types,
+                            improved_architecture=args.improved_architecture)
     test_data = GraphDataset(test_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                              max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                              partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -181,16 +213,22 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                              r_covalent=args.r_covalent, r_vanderwals=args.r_vanderwals,
                              default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                              chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
-                             hybridization_types=args.hybridization_types, chi_types=args.chi_types)
+                             hybridization_types=args.hybridization_types, chi_types=args.chi_types,
+                             improved_architecture=args.improved_architecture)
 
     train_data_length, val_data_length, test_data_length = len(train_data), len(val_data), len(test_data)
     debug(f'train size = {train_data_length:,} | val size = {val_data_length:,} | test size = {test_data_length:,}'
           )
 
     # Convert to iterators
-    train_data = DataLoader(train_data, args.batch_size)
-    val_data = DataLoader(val_data, args.batch_size)
-    test_data = DataLoader(test_data, args.batch_size)
+    if args.improved_architecture:
+        train_data = DataLoaderImproved(train_data, args.batch_size)
+        val_data = DataLoaderImproved(val_data, args.batch_size)
+        test_data = DataLoaderImproved(test_data, args.batch_size)
+    else:
+        train_data = DataLoader(train_data, args.batch_size)
+        val_data = DataLoader(val_data, args.batch_size)
+        test_data = DataLoader(test_data, args.batch_size)
 
     # Load/build model
     if args.checkpoint_path is not None:
@@ -225,8 +263,12 @@ def run_relational_training(args: Args, logger: Logger) -> None:
             args.num_vertex_features += len(args.chi_types)
 
         debug('Building model')
-        model = RelationalNetwork(args.hidden_size, args.num_layers, args.num_edge_features, args.num_vertex_features,
-                                  args.final_linear_size, args.final_output_size)
+        if args.improved_architecture:
+            model = MPMLPOutNet(args.num_vertex_features, args.num_edge_features, args.max_atoms, args.num_layers,
+                                args.hidden_size)
+        else:
+            model = RelationalNetwork(args.hidden_size, args.num_layers, args.num_edge_features,
+                                      args.num_vertex_features, args.final_linear_size, args.final_output_size)
 
     # Print model info
     debug(model)

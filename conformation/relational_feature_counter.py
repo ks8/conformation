@@ -19,7 +19,7 @@ class Args(Tap):
 
 def relational_feature_counter(args: Args):
     """
-    Determine which category of features are present in a dataset of molecules (bond types, atom types, etc.)
+    Determine which category of features are present in a dataset of molecules (bond types, atom types, etc.).
     """
 
     # Load metadata
@@ -29,6 +29,7 @@ def relational_feature_counter(args: Args):
     atom_types = dict()
     bond_types = dict()
     path_lengths = dict()
+    max_atoms = 0
 
     # Process each molecule in the dataset
     for i in range(len(metadata)):
@@ -62,6 +63,10 @@ def relational_feature_counter(args: Args):
             else:
                 path_lengths[path_len] = 1
 
+        # Process number of atoms
+        if num_atoms > max_atoms:
+            max_atoms = num_atoms
+
     # Save results to text file
     with open(args.save_path + ".txt", "w") as f:
         f.write("Atom Types: ")
@@ -72,5 +77,7 @@ def relational_feature_counter(args: Args):
         f.write("\n")
         f.write("Shortest Path Lengths: ")
         f.write(json.dumps(path_lengths))
+        f.write("Max number of atoms: ")
+        f.write(str(max_atoms))
 
 

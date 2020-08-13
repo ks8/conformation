@@ -1,4 +1,5 @@
 """ Run relational network evaluation. """
+import collections
 import itertools
 import json
 from logging import Logger
@@ -6,11 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pickle
+import pandas as pd
 from typing import Dict, List, Tuple
 from typing_extensions import Literal
 
+import rdkit
 from rdkit import Chem
 from rdkit.Chem import rdmolops
+from rdkit.Chem.Draw import rdMolDraw2D
 import seaborn as sns
 from sklearn.model_selection import train_test_split
 # noinspection PyPackageRequirements
@@ -127,7 +131,7 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                              triplet_types: List, carbon_carbon_ring_types: List, carbon_carbon_non_ring_types,
                              carbon_carbon_chain_types: List, carbon_carbon_no_chain_types: List,
                              carbon_carbon_aromatic_types: List, carbon_carbon_non_aromatic_types: List,
-                             carbon_carbon_quadruplet_types: List) -> None:
+                             carbon_carbon_quadruplet_types: List, carbon_carbon_non_ring_molecules: List) -> None:
     """
     Compute shortest path, bond type information for each edge and add to relevant lists.
     :param batch: Data batch.
@@ -142,6 +146,7 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
     :param carbon_carbon_aromatic_types: List containing bond types for CC "bonds" in aromatic rings.
     :param carbon_carbon_non_aromatic_types: List containing bond types for CC "bonds" in non-aromatic rings.
     :param carbon_carbon_quadruplet_types: List containing bond types for "bonds" with shortest path length 3.
+    :param carbon_carbon_non_ring_molecules: List of molecules corresponding to CC no ring "bonds".
     :return: None.
     """
     for i in range(batch.uid.shape[0]):
@@ -176,6 +181,7 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                     key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-ring"
                     carbon_carbon_ring_types.append(key)
                     carbon_carbon_non_ring_types.append(None)
+                    carbon_carbon_non_ring_molecules.append(None)
 
                     if mol.GetAtoms()[int(m)].GetIsAromatic() and mol.GetAtoms()[int(n)].GetIsAromatic():
                         key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-aromatic"
@@ -190,6 +196,7 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                     key = ''.join(sorted([atom_a, atom_b])) + str(path_len) + "-non-ring"
                     carbon_carbon_ring_types.append(None)
                     carbon_carbon_non_ring_types.append(key)
+                    carbon_carbon_non_ring_molecules.append([mol, m, n, uid, smiles])
                     carbon_carbon_aromatic_types.append(None)
                     carbon_carbon_non_aromatic_types.append(None)
 
@@ -216,12 +223,14 @@ def path_and_bond_extraction(batch: Batch, uid_dict: Dict, shortest_paths: List,
                     intermediates = sorted([atom_intermediate_1, atom_intermediate_2])
                     key = atom_a + intermediates[0] + intermediates[1] + atom_b
                     carbon_carbon_quadruplet_types.append(key)
+
                 else:
                     carbon_carbon_quadruplet_types.append(None)
 
             else:
                 carbon_carbon_ring_types.append(None)
                 carbon_carbon_non_ring_types.append(None)
+                carbon_carbon_non_ring_molecules.append(None)
                 carbon_carbon_chain_types.append(None)
                 carbon_carbon_no_chain_types.append(None)
                 carbon_carbon_aromatic_types.append(None)
@@ -360,6 +369,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
         else:
             errors = []
             predictions = []
+            carbon_carbon_non_ring_molecules = []
             error_sum, batch_count = 0, 0
 
         model.eval()
@@ -401,7 +411,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                          carbon_carbon_ring_types, carbon_carbon_non_ring_types,
                                          carbon_carbon_chain_types, carbon_carbon_no_chain_types,
                                          carbon_carbon_aromatic_types, carbon_carbon_non_aromatic_types,
-                                         carbon_carbon_quadruplet_types)
+                                         carbon_carbon_quadruplet_types, carbon_carbon_non_ring_molecules)
 
                 # Compute RMSE for means and stds
                 mean_error_sum += torch.sqrt_(loss_func(preds[:, 0], targets[:, 0])).item()
@@ -425,7 +435,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                          carbon_carbon_ring_types, carbon_carbon_non_ring_types,
                                          carbon_carbon_chain_types, carbon_carbon_no_chain_types,
                                          carbon_carbon_aromatic_types, carbon_carbon_non_aromatic_types,
-                                         carbon_carbon_quadruplet_types)
+                                         carbon_carbon_quadruplet_types, carbon_carbon_non_ring_molecules)
 
                 # Compute RMSE loss
                 error_sum += torch.sqrt_(loss_func(preds, targets)).item()
@@ -507,7 +517,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                      title="Error and Predicted vs True Distance: " + key + " " + string_list[i],
                                      x_label="True Distance", y_label_1="Error", y_label_2="Predicted",
                                      save_path=os.path.join(args.save_dir, key + "-" + string_list[i] +
-                                                            "-error-vs-distance"), x_lim=x_lim_list[i],
+                                                            "-error-vs-distance-joint"), x_lim=x_lim_list[i],
                                      y_lim_1=y_lim_1_list[i], y_lim_2=y_lim_2_list[i])
 
                     simple_plot(array_x=dictionaries_list[j][key][:, 2 + i],
@@ -515,7 +525,7 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                 x_label="True Distance", y_label="Error",
                                 save_path=os.path.join(args.save_dir, key + "-" + string_list[i] +
                                                        "-error-vs-distance"),
-                                x_lim=x_lim_list[i], y_lim=y_lim_1_list[i])
+                                x_lim=x_lim_list[i], y_lim=y_lim_1_list[i], color='r')
 
                     simple_plot(array_x=dictionaries_list[j][key][:, 2 + i],
                                 array_y=dictionaries_list[j][key][:, 4 + i],
@@ -550,6 +560,239 @@ def run_relational_evaluation(args: Args, logger: Logger) -> None:
                                true_distances, predictions)
         create_bond_dictionary(carbon_carbon_quadruplet_types, carbon_carbon_quadruplet_dict, errors,
                                true_distances, predictions)
+
+        for i in range(len(carbon_carbon_non_ring_molecules)):
+            if carbon_carbon_non_ring_molecules[i] is not None:
+                carbon_carbon_non_ring_molecules[i] += [errors[i], true_distances[i]]
+
+        carbon_carbon_non_ring_molecules = [x for x in carbon_carbon_non_ring_molecules if x is not None]
+
+        lo_chirality = []
+        lo_stereo = []
+        hi_chirality = []
+        hi_stereo = []
+        lo_true_chirality = []
+        lo_true_stereo = []
+        hi_true_chirality = []
+        hi_true_stereo = []
+        # noinspection PyUnresolvedReferences
+        stereo_dict = {rdkit.Chem.rdchem.BondStereo.STEREONONE: "STEREONONE",
+                       rdkit.Chem.rdchem.BondStereo.STEREOANY: "STEREOANY",
+                       rdkit.Chem.rdchem.BondStereo.STEREOZ: "STEREOZ",
+                       rdkit.Chem.rdchem.BondStereo.STEREOE: "STEREOE",
+                       rdkit.Chem.rdchem.BondStereo.STEREOCIS: "STEREOCIS",
+                       rdkit.Chem.rdchem.BondStereo.STEREOTRANS: "STEREOTRANS"}
+        # noinspection PyUnresolvedReferences
+        chiral_dict = {rdkit.Chem.rdchem.ChiralType.CHI_UNSPECIFIED: "UNSPECIFIED",
+                       rdkit.Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CW: "CHI_TETRAHEDRAL_CW",
+                       rdkit.Chem.rdchem.ChiralType.CHI_TETRAHEDRAL_CCW: "CHI_TETRAHEDRAL_CCW",
+                       rdkit.Chem.rdchem.ChiralType.CHI_OTHER: "CHI_OTHER"}
+
+        carbon_carbon_non_ring_molecules_path_3_errors = []
+        for i in range(len(carbon_carbon_non_ring_molecules)):
+            mol = carbon_carbon_non_ring_molecules[i][0]
+            atom_a_idx = carbon_carbon_non_ring_molecules[i][1]
+            atom_b_idx = carbon_carbon_non_ring_molecules[i][2]
+            error = carbon_carbon_non_ring_molecules[i][5]
+            if len(rdmolops.GetShortestPath(mol, int(atom_a_idx), int(atom_b_idx))) - 1 == 3:
+                carbon_carbon_non_ring_molecules_path_3_errors.append(error)
+
+        carbon_carbon_non_ring_molecules_path_3_errors = sorted(carbon_carbon_non_ring_molecules_path_3_errors)
+        bottom_cut = carbon_carbon_non_ring_molecules_path_3_errors[
+                     :int(np.ceil(len(carbon_carbon_non_ring_molecules_path_3_errors)/5.))][-1]
+        top_cut = carbon_carbon_non_ring_molecules_path_3_errors[
+                     -int(np.ceil(len(carbon_carbon_non_ring_molecules_path_3_errors)/5.)):][0]
+        print(bottom_cut, top_cut)
+
+        carbon_carbon_non_ring_molecules_path_3_true = []
+        for i in range(len(carbon_carbon_non_ring_molecules)):
+            mol = carbon_carbon_non_ring_molecules[i][0]
+            atom_a_idx = carbon_carbon_non_ring_molecules[i][1]
+            atom_b_idx = carbon_carbon_non_ring_molecules[i][2]
+            true = carbon_carbon_non_ring_molecules[i][6]
+            if len(rdmolops.GetShortestPath(mol, int(atom_a_idx), int(atom_b_idx))) - 1 == 3:
+                carbon_carbon_non_ring_molecules_path_3_true.append(true)
+
+        carbon_carbon_non_ring_molecules_path_3_true = sorted(carbon_carbon_non_ring_molecules_path_3_true)
+        bottom_cut_true = carbon_carbon_non_ring_molecules_path_3_true[
+                     :int(np.ceil(len(carbon_carbon_non_ring_molecules_path_3_true)/20.))][-1]
+        top_cut_true = carbon_carbon_non_ring_molecules_path_3_true[
+                     -int(np.ceil(len(carbon_carbon_non_ring_molecules_path_3_true)/20.)):][0]
+        print(bottom_cut_true, top_cut_true)
+
+        for i in range(len(carbon_carbon_non_ring_molecules)):
+            mol = carbon_carbon_non_ring_molecules[i][0]
+            atom_a_idx = carbon_carbon_non_ring_molecules[i][1]
+            atom_b_idx = carbon_carbon_non_ring_molecules[i][2]
+            uid = carbon_carbon_non_ring_molecules[i][3]
+            error = carbon_carbon_non_ring_molecules[i][5]
+            true = carbon_carbon_non_ring_molecules[i][6]
+
+            d = rdMolDraw2D.MolDraw2DCairo(500, 500)
+            rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=[int(atom_a_idx), int(atom_b_idx)])
+            if len(rdmolops.GetShortestPath(mol, int(atom_a_idx), int(atom_b_idx))) - 1 == 3:
+                if error < bottom_cut or error > top_cut:
+                    if error < bottom_cut:
+                        title_prefix = "lo-error"
+                        lo_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_a_idx)).GetChiralTag()])
+                        lo_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_b_idx)).GetChiralTag()])
+                        for bond in mol.GetBonds():
+                            if int(atom_a_idx) or int(atom_b_idx) in bond.GetStereoAtoms():
+                                lo_stereo.append(stereo_dict[bond.GetStereo()])
+                    else:
+                        title_prefix = "hi-error"
+                        hi_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_a_idx)).GetChiralTag()])
+                        hi_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_b_idx)).GetChiralTag()])
+                        for bond in mol.GetBonds():
+                            if int(atom_a_idx) or int(atom_b_idx) in bond.GetStereoAtoms():
+                                hi_stereo.append(stereo_dict[bond.GetStereo()])
+                    # with open(os.path.join(args.save_dir, title_prefix + "-" + str(uid) + '.png'), 'wb') as f:
+                    #     # noinspection PyArgumentList
+                    #     f.write(d.GetDrawingText())
+                    # with open(os.path.join(args.save_dir, str(uid) + "-" + title_prefix + '.png'), 'wb') as f:
+                    #     # noinspection PyArgumentList
+                    #     f.write(d.GetDrawingText())
+                if true < bottom_cut_true or true > top_cut_true:
+                    if 3. < true < 3.1:
+                        title_prefix = "lo-true"
+                        lo_true_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_a_idx)).GetChiralTag()])
+                        lo_true_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_b_idx)).GetChiralTag()])
+                        for bond in mol.GetBonds():
+                            if int(atom_a_idx) or int(atom_b_idx) in bond.GetStereoAtoms():
+                                lo_true_stereo.append(stereo_dict[bond.GetStereo()])
+                    elif 3.9 < true < 4.0:
+                        title_prefix = "hi-true"
+                        hi_true_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_a_idx)).GetChiralTag()])
+                        hi_true_chirality.append(chiral_dict[mol.GetAtomWithIdx(int(atom_b_idx)).GetChiralTag()])
+                        for bond in mol.GetBonds():
+                            if int(atom_a_idx) or int(atom_b_idx) in bond.GetStereoAtoms():
+                                hi_true_stereo.append(stereo_dict[bond.GetStereo()])
+                    # with open(os.path.join(args.save_dir, title_prefix + "-" + str(uid) + '.png'), 'wb') as f:
+                    #     # noinspection PyArgumentList
+                    #     f.write(d.GetDrawingText())
+                    # with open(os.path.join(args.save_dir, str(uid) + "-" + title_prefix + '.png'), 'wb') as f:
+                    #     # noinspection PyArgumentList
+                    #     f.write(d.GetDrawingText())
+
+        counter = collections.Counter(lo_chirality)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(lo_chirality))
+
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.set_ylim((0.0, 1.0))
+        ax.figure.savefig(os.path.join(args.save_dir, "lo chirality"))
+        plt.close()
+
+        counter = collections.Counter(hi_chirality)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(hi_chirality))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.set_ylim((0.0, 1.0))
+        ax.figure.savefig(os.path.join(args.save_dir, "hi chirality"))
+        plt.close()
+
+        counter = collections.Counter(lo_stereo)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(lo_stereo))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "lo stereo"))
+        plt.close()
+
+        counter = collections.Counter(hi_stereo)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(hi_stereo))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "hi stereo"))
+        plt.close()
+
+        counter = collections.Counter(lo_true_chirality)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(lo_true_chirality))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "lo true chirality"))
+        plt.close()
+
+        counter = collections.Counter(hi_true_chirality)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(hi_true_chirality))
+        if "CHI_TETRAHEDRAL_CCW" not in counter_keys:
+            counter_keys.append("CHI_TETRAHEDRAL_CCW")
+            counter_values.append(0)
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "hi true chirality"))
+        plt.close()
+
+        counter = collections.Counter(lo_true_stereo)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(lo_true_stereo))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "lo true stereo"))
+        plt.close()
+
+        counter = collections.Counter(hi_true_stereo)
+        counter_keys = []
+        counter_values = []
+        for key, value in counter.items():
+            counter_keys.append(key)
+            counter_values.append(value / len(hi_true_stereo))
+        counter_keys_sorted = list(np.array(counter_keys)[np.argsort(counter_keys)])
+        counter_values_sorted = list(np.array(counter_values)[np.argsort(counter_keys)])
+        df = pd.DataFrame({"groups": counter_keys_sorted, "percent": counter_values_sorted})
+
+        ax = sns.barplot(x="groups", y="percent", data=df)
+        ax.figure.savefig(os.path.join(args.save_dir, "hi true stereo"))
+        plt.close()
+
+        exit()
 
         dictionaries_list = [bond_type_dict, triplet_dict, carbon_carbon_ring_dict, carbon_carbon_non_ring_dict,
                              carbon_carbon_chain_dict, carbon_carbon_no_chain_dict, carbon_carbon_aromatic_dict,

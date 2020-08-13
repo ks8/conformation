@@ -52,18 +52,21 @@ def qm9_to_smiles(args: Args) -> None:
             if na == pos.shape[0] and args.n_min <= na <= args.n_max:
 
                 # Exclude molecule if it contains any F atoms
+                f_present = False
                 if args.exclude_f:
                     for atom in mol.GetAtoms():
-                        if atom.GetSymbol() == "F":
-                            continue
+                        if atom.GetAtomicNum() == 9:
+                            f_present = True
+                            break
 
-                with open(os.path.join(args.save_dir, "smiles", "qm9_" + str(counter) + ".smiles"), "w") as f:
-                    f.write(smiles)
-                counter += 1
+                if not f_present:
+                    with open(os.path.join(args.save_dir, "smiles", "qm9_" + str(counter) + ".smiles"), "w") as f:
+                        f.write(smiles)
+                    counter += 1
 
-                bin_str = mol.ToBinary()
-                with open(os.path.join(args.save_dir, "binaries", "qm9_" + str(counter) + ".bin"), "wb") as f:
-                    f.write(bin_str)
+                    bin_str = mol.ToBinary()
+                    with open(os.path.join(args.save_dir, "binaries", "qm9_" + str(counter) + ".bin"), "wb") as f:
+                        f.write(bin_str)
 
         else:
             break

@@ -1,11 +1,13 @@
 """ PyTorch dataset classes for molecular data. """
-import numpy as np
+import itertools
 from typing import Dict, List, Tuple, Union
+import numpy as np
 
+import torch
 from rdkit import Chem
+# noinspection PyUnresolvedReferences
 from rdkit.Chem import AllChem, rdmolops, rdPartialCharges, rdForceFieldHelpers, rdchem
 from scipy import sparse
-import torch
 from torch.utils.data import Dataset
 
 from conformation.distance_matrix import distmat_to_vec
@@ -59,7 +61,7 @@ class GraphDataset(Dataset):
                  r_vanderwals: bool = True, default_valence: bool = True, max_ring_size: int = 8,
                  rings: bool = True, chirality: bool = True, mmff94_atom_types: List[int] = None,
                  hybridization_types: List[Chem.HybridizationType] = None,
-                 chi_types: List[rdchem.ChiralType] = None):
+                 chi_types: List[rdchem.ChiralType] = None, improved_architecture: bool = False, max_atoms: int = 26):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
@@ -85,6 +87,8 @@ class GraphDataset(Dataset):
         :param mmff94_atom_types: MMFF94 atom types.
         :param hybridization_types: Hybridization types.
         :param chi_types: Chiral tag types.
+        :param improved_architecture: Whether or not to use Jonas improved relational architecture.
+        :param max_atoms: Maximum number of atoms for a given molecule in the dataset (improved_architecture = True)
         """
         super(Dataset, self).__init__()
         if bond_types is None:
@@ -140,11 +144,13 @@ class GraphDataset(Dataset):
         else:
             self.chi_types = chi_types
         self.chirality = chirality
+        self.improved_architecture = improved_architecture
+        self.max_atoms = max_atoms
 
     def __len__(self) -> int:
         return len(self.metadata)
 
-    def __getitem__(self, idx) -> Data:
+    def __getitem__(self, idx) -> Union[Data, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         """
         Output a data object with node features, edge connectivity, and (optionally) target.
         :param idx: Which item to load.
@@ -279,7 +285,37 @@ class GraphDataset(Dataset):
         # UID
         data.uid = torch.tensor([int(self.metadata[idx]['uid'])])
 
-        return data
+        if self.improved_architecture:
+            # Vertex features
+            v_in = data.x
+            padding = torch.zeros([self.max_atoms, v_in.shape[1]])
+            padding[:v_in.shape[0], :] = v_in
+            v_in = padding
+
+            # Mask
+            mask = torch.tensor([1. if x < num_atoms else 0. for x in range(self.max_atoms)])
+
+            # Edge features
+            k = 0
+            e_in = torch.zeros([num_atoms, num_atoms, data.edge_attr.shape[1]])
+            for i, j in itertools.combinations(np.arange(num_atoms), 2):
+                e_in[i, j, :] = data.edge_attr[k, :]
+                e_in[j, i, :] = data.edge_attr[k, :]
+                k += 1
+            padding = torch.zeros([self.max_atoms, self.max_atoms, data.edge_attr.shape[1]])
+            padding[:e_in.shape[0], :e_in.shape[0], :] = e_in
+            e_in = padding
+
+            # Target
+            target = data.y
+            padding = torch.zeros([self.max_atoms*self.max_atoms - self.max_atoms, data.y.shape[1]])
+            padding[:target.shape[0], :] = target
+            target = padding
+
+            return v_in, e_in, mask, target
+
+        else:
+            return data
 
     def __repr__(self) -> str:
         return '{}({})'.format(self.__class__.__name__, len(self))

@@ -20,7 +20,7 @@ class Args(Tap):
     n_min: int = 2  # Minimum number of heavy atoms
     n_max: int = 9  # Maximum number of heavy atoms
     max_num: int = 10000  # Maximum number of molecules to read
-    exclude_f: bool = True  # Whether or not to exclude F atoms
+    exclude_f: bool = False  # Whether or not to exclude F atoms
 
 
 def qm9_conformers(args: Args) -> None:
@@ -54,21 +54,24 @@ def qm9_conformers(args: Args) -> None:
             if args.n_min <= na <= args.n_max:
 
                 # Exclude molecule if it contains any F atoms
+                f_present = False
                 if args.exclude_f:
                     for atom in mol.GetAtoms():
-                        if atom.GetSymbol() == "F":
-                            continue
+                        if atom.GetAtomicNum() == 9:
+                            f_present = True
+                            break
 
-                with open(os.path.join(args.save_dir, "smiles", "qm9_" + str(counter) + ".smiles"), "w") as f:
-                    f.write(smiles)
+                if not f_present:
+                    with open(os.path.join(args.save_dir, "smiles", "qm9_" + str(counter) + ".smiles"), "w") as f:
+                        f.write(smiles)
 
-                bin_str = mol.ToBinary()
-                with open(os.path.join(args.save_dir, "binaries", "qm9_" + str(counter) + ".bin"), "wb") as f:
-                    f.write(bin_str)
+                    bin_str = mol.ToBinary()
+                    with open(os.path.join(args.save_dir, "binaries", "qm9_" + str(counter) + ".bin"), "wb") as f:
+                        f.write(bin_str)
 
-                pos = mol.GetConformer().GetPositions()
-                dist_matrix(pos, os.path.join(args.save_dir, "distmat", "distmat-lowenergy-qm9_" + str(counter)))
-                counter += 1
+                    pos = mol.GetConformer().GetPositions()
+                    dist_matrix(pos, os.path.join(args.save_dir, "distmat", "distmat-lowenergy-qm9_" + str(counter)))
+                    counter += 1
 
         else:
             break

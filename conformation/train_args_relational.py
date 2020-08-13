@@ -14,6 +14,8 @@ class Args(Tap):
     data_path: str  # Path to metadata file
     checkpoint_path: str = None  # Directory of checkpoint to load saved model
     save_dir: str  # Save directory
+    improved_architecture: bool = False  # Whether or not to use improved architecture
+    max_atoms: int = 26  # Maximum number of atoms in a given molecule (improved_architecture = True)
     num_epochs: int  # Number of training epochs
     num_layers: int = 10  # Number of layers
     std: bool = False  # Whether or not to additionally train on atomic pairwise distance standard deviation

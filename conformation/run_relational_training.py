@@ -76,11 +76,10 @@ def train(model: nn.Module, optimizer: Adam, data: DataLoader, args: Args, logge
         if args.improved_architecture:
             # noinspection PyUnboundLocalVariable
             preds = model(v_in, e_in, mask)
+            preds = preds.squeeze(3).squeeze(2)
+            targets = targets[:, :preds.shape[1]]  # TODO: confirm that this is the right order of targets and edges
         else:
             preds = model(batch)
-
-        preds = preds.squeeze(3).squeeze(2)
-        targets = targets[:, :preds.shape[1]]  # TODO: confirm that this is the right order of targets and edges
 
         # Compute loss
         if args.std:

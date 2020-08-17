@@ -43,6 +43,8 @@ def qm9_conformers(args: Args) -> None:
                 rdmolops.AssignAtomChiralTagsFromStructure(mol)
                 rdmolops.AssignStereochemistry(mol)
 
+                mol = Chem.AddHs(mol, addCoords=True)
+
                 smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
                 if '.' in smiles:
                     continue
@@ -52,7 +54,6 @@ def qm9_conformers(args: Args) -> None:
 
             na = mol.GetNumHeavyAtoms()
             if args.n_min <= na <= args.n_max:
-
                 # Exclude molecule if it contains any F atoms
                 f_present = False
                 if args.exclude_f:
@@ -71,6 +72,7 @@ def qm9_conformers(args: Args) -> None:
 
                     pos = mol.GetConformer().GetPositions()
                     dist_matrix(pos, os.path.join(args.save_dir, "distmat", "distmat-lowenergy-qm9_" + str(counter)))
+
                     counter += 1
 
         else:

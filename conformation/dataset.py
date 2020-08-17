@@ -158,10 +158,7 @@ class GraphDataset(Dataset):
         """
         data = Data()
 
-        # Molecule from SMILES string
-        # smiles = self.metadata[idx]['smiles']  # Read smiles string
-        # mol = Chem.MolFromSmiles(smiles)
-        # mol = Chem.AddHs(mol)
+        # Molecule from binary
         # noinspection PyUnresolvedReferences
         mol = Chem.Mol(open(self.metadata[idx]['binary'], "rb").read())
         num_atoms = mol.GetNumAtoms()

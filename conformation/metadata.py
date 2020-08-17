@@ -60,6 +60,7 @@ def metadata(args: Args) -> None:
     data = []
     conditional_dict = dict()
     uid_dict = dict()
+    binary_dict = dict()
     uid = 0
     for root, _, files in os.walk(args.data_dir):
         for f in files:
@@ -71,6 +72,7 @@ def metadata(args: Args) -> None:
                 binary_path = os.path.join(args.binary_dir, molecule_name + ".bin")
                 data.append({'smiles': smiles, 'target': path, 'uid': uid, 'binary': binary_path})
                 uid_dict[uid] = smiles
+                binary_dict[uid] = binary_path
                 uid += 1
             elif args.cnf:
                 molecule_name = f[[m.end() for m in re.finditer("-", f)][-1]:f.find(".")]
@@ -147,4 +149,7 @@ def metadata(args: Args) -> None:
                 data.append({'path': path})
     if len(uid_dict) > 0:
         pickle.dump(uid_dict, open(os.path.join(args.save_dir, "uid_dict.p"), "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+    if len(binary_dict) > 0:
+        pickle.dump(binary_dict, open(os.path.join(args.save_dir, "binary_dict.p"), "wb"),
+                    protocol=pickle.HIGHEST_PROTOCOL)
     json.dump(data, open(os.path.join(args.save_dir, args.save_dir + ".json"), "w"), indent=4, sort_keys=True)

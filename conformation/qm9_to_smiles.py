@@ -31,7 +31,7 @@ def qm9_to_smiles(args: Args) -> None:
     os.makedirs(os.path.join(args.save_dir, "smiles"))
     os.makedirs(os.path.join(args.save_dir, "binaries"))
 
-    suppl = Chem.SDMolSupplier(args.data_path)
+    suppl = Chem.SDMolSupplier(args.data_path, removeHs=False)
     counter = 0
     for i, mol in enumerate(suppl):
         if counter < args.max_num:
@@ -39,6 +39,8 @@ def qm9_to_smiles(args: Args) -> None:
             try:
                 rdmolops.AssignAtomChiralTagsFromStructure(mol)
                 rdmolops.AssignStereochemistry(mol)
+
+                mol = Chem.AddHs(mol, addCoords=True)
 
                 smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
                 if '.' in smiles:
@@ -48,9 +50,7 @@ def qm9_to_smiles(args: Args) -> None:
                 continue
 
             na = mol.GetNumHeavyAtoms()
-            pos = mol.GetConformer().GetPositions()
-            if na == pos.shape[0] and args.n_min <= na <= args.n_max:
-
+            if args.n_min <= na <= args.n_max:
                 # Exclude molecule if it contains any F atoms
                 f_present = False
                 if args.exclude_f:
@@ -62,11 +62,12 @@ def qm9_to_smiles(args: Args) -> None:
                 if not f_present:
                     with open(os.path.join(args.save_dir, "smiles", "qm9_" + str(counter) + ".smiles"), "w") as f:
                         f.write(smiles)
-                    counter += 1
 
                     bin_str = mol.ToBinary()
                     with open(os.path.join(args.save_dir, "binaries", "qm9_" + str(counter) + ".bin"), "wb") as f:
                         f.write(bin_str)
+
+                    counter += 1
 
         else:
             break

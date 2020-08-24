@@ -6,7 +6,7 @@ from typing import Tuple
 import scipy.spatial
 
 
-def dist_matrix(positions: np.ndarray, destination: str) -> None:
+def dist_matrix(positions: np.ndarray, destination: str = None) -> np.ndarray:
     """
     Compute the pairwise distance matrix for a molecule and save as a text file in a specified file.
     :param positions: numpy array of atomic coordinates.
@@ -18,8 +18,10 @@ def dist_matrix(positions: np.ndarray, destination: str) -> None:
     for i, j in itertools.combinations(np.arange(num_atoms), 2):
         dist_mat[i][j] = scipy.spatial.distance.euclidean(positions[i], positions[j])
         dist_mat[j][i] = dist_mat[i][j]
-    # noinspection PyTypeChecker
-    np.save(destination, dist_mat)
+    if destination is not None:
+        # noinspection PyTypeChecker
+        np.save(destination, dist_mat)
+    return dist_mat
 
 
 def distmat_to_vec(path: str) -> Tuple[int, np.ndarray]:

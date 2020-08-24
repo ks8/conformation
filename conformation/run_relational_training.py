@@ -191,7 +191,14 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                               default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                               chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
                               hybridization_types=args.hybridization_types, chi_types=args.chi_types,
-                              improved_architecture=args.improved_architecture)
+                              improved_architecture=args.improved_architecture, degree_types=args.degree_types,
+                              degree=args.degree, num_hydrogen_types=args.num_hydrogen_types,
+                              num_hydrogen=args.num_hydrogen,
+                              num_radical_electron_types=args.num_radical_electron_types,
+                              num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
+                              bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
+                              bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
+                              same_ring=args.same_ring)
     val_data = GraphDataset(validation_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                             max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                             partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -202,7 +209,14 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                             default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                             chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
                             hybridization_types=args.hybridization_types, chi_types=args.chi_types,
-                            improved_architecture=args.improved_architecture)
+                            improved_architecture=args.improved_architecture, degree_types=args.degree_types,
+                            degree=args.degree, num_hydrogen_types=args.num_hydrogen_types,
+                            num_hydrogen=args.num_hydrogen,
+                            num_radical_electron_types=args.num_radical_electron_types,
+                            num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
+                            bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
+                            bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
+                            same_ring=args.same_ring)
     test_data = GraphDataset(test_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                              max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                              partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -213,7 +227,14 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                              default_valence=args.default_valence, max_ring_size=args.max_ring_size, rings=args.rings,
                              chirality=args.chirality, mmff94_atom_types=args.mmff94_atom_types,
                              hybridization_types=args.hybridization_types, chi_types=args.chi_types,
-                             improved_architecture=args.improved_architecture)
+                             improved_architecture=args.improved_architecture, degree_types=args.degree_types,
+                             degree=args.degree, num_hydrogen_types=args.num_hydrogen_types,
+                             num_hydrogen=args.num_hydrogen,
+                             num_radical_electron_types=args.num_radical_electron_types,
+                             num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
+                             bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
+                             bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
+                             same_ring=args.same_ring)
 
     train_data_length, val_data_length, test_data_length = len(train_data), len(val_data), len(test_data)
     debug(f'train size = {train_data_length:,} | val size = {val_data_length:,} | test size = {test_data_length:,}'
@@ -234,8 +255,20 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         debug('Loading model from {}'.format(args.checkpoint_path))
         model, _ = load_relational_checkpoint(args.checkpoint_path, Args())
     else:
-        args.num_edge_features = len(args.bond_types) + args.max_shortest_path_length + 1
+        args.num_edge_features = 0
         args.num_vertex_features = 0
+        if args.bond_type:
+            args.num_edge_features += len(args.bond_types) + 1
+        if args.conjugated:
+            args.num_edge_features += 1
+        if args.bond_ring:
+            args.num_edge_features += 1
+        if args.bond_stereo:
+            args.num_edge_features += len(args.bond_stereo_types)
+        if args.shortest_path:
+            args.num_edge_features += args.max_shortest_path_length
+        if args.same_ring:
+            args.num_edge_features += 1
         if args.atomic_num:
             args.num_vertex_features += len(args.atom_types)
         if args.valence:
@@ -260,6 +293,12 @@ def run_relational_training(args: Args, logger: Logger) -> None:
             args.num_vertex_features += args.max_ring_size - 2
         if args.chirality:
             args.num_vertex_features += len(args.chi_types)
+        if args.degree:
+            args.num_vertex_features += len(args.degree_types)
+        if args.num_hydrogen:
+            args.num_vertex_features += len(args.num_hydrogen_types)
+        if args.num_radical_electron:
+            args.num_vertex_features += len(args.num_radical_electron_types)
 
         debug('Building model')
         if args.improved_architecture:

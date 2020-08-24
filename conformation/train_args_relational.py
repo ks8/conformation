@@ -49,6 +49,19 @@ class Args(Tap):
     rings: bool = True  # Whether or not to include rings as vertex feature
     # noinspection PyUnresolvedReferences
     chirality: bool = True  # Whether or not to include chirality as vertex feature
+    degree_types: List[int] = [1, 2, 3, 4]
+    degree: bool = True  # Whether or not to include atom degree as a vertex feature
+    num_hydrogen_types: List[int] = [0, 1, 2, 3]  # List of allowed number of H atoms (including neighbors)
+    num_hydrogen: bool = True  # Whether or not to include number of (neighboring) Hs as a vertex feature
+    num_radical_electron_types: List[int] = [0, 1, 2]  # List of allowed number of radical electrons
+    num_radical_electron: bool = True  # Whether or not to include number of radical electrons as a vertex feature
+    bond_type: bool = True  # Whether or not to include bond type as an edge feature
+    conjugated: bool = True  # Whether or not to include conjugated as an edge feature
+    bond_ring: bool = True  # Whether or not to include bond being in ring as an edge feature
+    bond_stereo: bool = True  # Whether or not to include bond stereo types as an edge feature
+    shortest_path: bool = True  # Whether or not to include shortest path length as an edge feature
+    same_ring: bool = True  # Whether or not to include shortest path length as an edge feature
+    num_workers: int = 8  # Chemprop training parallelization number of workers
 
     def __init__(self):
         super(Args, self).__init__()
@@ -65,6 +78,8 @@ class Args(Tap):
         self._mmff94_atom_types = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26,
                                    27, 28, 29, 30, 31, 32, 33, 37, 38, 39, 40, 42, 43, 44, 46, 48, 59, 62, 63, 64,
                                    65, 66, 70, 71, 72, 74, 75, 78]
+        # noinspection PyUnresolvedReferences
+        self._bond_stereo_types = list(rdchem.BondStereo.values.values())
 
     # noinspection PyUnresolvedReferences
     @property
@@ -120,3 +135,20 @@ class Args(Tap):
         :return: None.
         """
         self._mmff94_atom_types = mmff94_atom_types
+
+    @property
+    def bond_stereo_types(self) -> List[int]:
+        """
+        Bond stereo types property.
+        :return: List of types.
+        """
+        return self._bond_stereo_types
+
+    @bond_stereo_types.setter
+    def bond_stereo_types(self, bond_stereo_types: List[int]) -> None:
+        """
+        Setter for bond stereo types.
+        :param bond_stereo_types: List of bond stereo types.
+        :return: None.
+        """
+        self._bond_stereo_types = bond_stereo_types

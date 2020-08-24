@@ -40,11 +40,32 @@ def qm9_conformers(args: Args) -> None:
         if counter < args.max_num:
             # noinspection PyBroadException
             try:
+                # Add chirality and stereochemistry information
                 rdmolops.AssignAtomChiralTagsFromStructure(mol)
                 rdmolops.AssignStereochemistry(mol)
 
-                mol = Chem.AddHs(mol, addCoords=True)
+                # Check to see if there is any missing x-coord, y-coord, or z-coord info from the conformation. If so,
+                # skip this molecule.
+                pos = mol.GetConformer().GetPositions()
+                missing_conf = False
+                for j in range(3):
+                    if sum(pos[:, j] == 0.) == len(pos[:, j] == 0.):
+                        missing_conf = True
+                if missing_conf:
+                    continue
 
+                # Compute the number of H atoms prior to attempting Chem.AddHs
+                original_num_atoms = mol.GetNumAtoms()
+
+                # Try adding Hs and compute the resulting number of atoms
+                mol = Chem.AddHs(mol)
+                new_num_atoms = mol.GetNumAtoms()
+
+                # If Hs were added, then skip this molecule
+                if original_num_atoms != new_num_atoms:
+                    continue
+
+                # If there is separation between components, as indicated by '.' in the SMILES, skip this molecule.
                 smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
                 if '.' in smiles:
                     continue

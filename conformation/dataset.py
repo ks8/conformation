@@ -39,6 +39,7 @@ class MolDataset(Dataset):
     def __getitem__(self, idx: int) -> torch.Tensor:
         _, data = distmat_to_vec(self.metadata[idx]['path'])
         data = torch.from_numpy(data)
+        # noinspection PyTypeChecker
         data = data.type(torch.float32)
 
         return data
@@ -61,7 +62,12 @@ class GraphDataset(Dataset):
                  r_vanderwals: bool = True, default_valence: bool = True, max_ring_size: int = 8,
                  rings: bool = True, chirality: bool = True, mmff94_atom_types: List[int] = None,
                  hybridization_types: List[Chem.HybridizationType] = None,
-                 chi_types: List[rdchem.ChiralType] = None, improved_architecture: bool = False, max_atoms: int = 26):
+                 chi_types: List[rdchem.ChiralType] = None, improved_architecture: bool = False, max_atoms: int = 26,
+                 degree_types: List[int] = None, degree: bool = True, num_hydrogen_types: List[int] = None,
+                 num_hydrogen: bool = True, num_radical_electron_types: List[int] = None,
+                 num_radical_electron: bool = True, conjugated: bool = True, bond_type: bool = True,
+                 bond_ring: bool = True, bond_stereo: bool = True, bond_stereo_types: List[int] = None,
+                 shortest_path: bool = True, same_ring: bool = True):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
@@ -89,6 +95,19 @@ class GraphDataset(Dataset):
         :param chi_types: Chiral tag types.
         :param improved_architecture: Whether or not to use Jonas improved relational architecture.
         :param max_atoms: Maximum number of atoms for a given molecule in the dataset (improved_architecture = True)
+        :param degree_types: Atomic degree types.
+        :param degree: Whether or not to include degree as a vertex feature.
+        :param num_hydrogen_types: List of allowed number of H atoms (including neighbors).
+        :param num_hydrogen: Whether or not to include number of (neighboring) Hs as a vertex feature.
+        :param num_radical_electron_types: List of allowed number of radical electrons.
+        :param num_radical_electron: Whether or not to include number of radical electrons as a vertex feature.
+        :param conjugated: Whether or not to include conjugated as an edge feature.
+        :param bond_type: Whether or not to include bond type as an edge feature.
+        :param bond_ring: Whether or not to include bond being in ring as an edge feature.
+        :param bond_stereo: Whether or not to include bond stereo as an edge feature.
+        :param bond_stereo_types: List of bond stereo types.
+        :param shortest_path: Whether or not to include shortest path length as a bond feature.
+        :param same_ring: Whether or not to include same ring as bond feature.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
@@ -146,6 +165,31 @@ class GraphDataset(Dataset):
         self.chirality = chirality
         self.improved_architecture = improved_architecture
         self.max_atoms = max_atoms
+        if degree_types is None:
+            self.degree_types = [1, 2, 3, 4]
+        else:
+            self.degree_types = degree_types
+        self.degree = degree
+        if num_hydrogen_types is None:
+            self.num_hydrogen_types = [0, 1, 2, 3]
+        else:
+            self.num_hydrogen_types = num_hydrogen_types
+        self.num_hydrogen = num_hydrogen
+        if num_radical_electron_types is None:
+            self.num_radical_electron_types = [0, 1, 2]
+        else:
+            self.num_radical_electron_types = num_radical_electron_types
+        self.num_radical_electron = num_radical_electron
+        self.conjugated = conjugated
+        self.bond_type = bond_type
+        self.bond_ring = bond_ring
+        self.bond_stereo = bond_stereo
+        if bond_stereo_types is None:
+            self.bond_stereo_types = list(rdchem.BondStereo.values.values())
+        else:
+            self.bond_stereo_types = bond_stereo_types
+        self.shortest_path = shortest_path
+        self.same_ring = same_ring
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -173,37 +217,65 @@ class GraphDataset(Dataset):
         data.edge_index = torch.stack([row, col])  # Edge connectivity in COO format (all possible edges)
 
         # Edge features
-        # Create one-hot encoding
-        one_hot_bond_features = np.zeros((len(self.bond_types), len(self.bond_types)))
-        np.fill_diagonal(one_hot_bond_features, 1.)
-        bond_to_one_hot = dict()
-        for i in range(len(self.bond_types)):
-            bond_to_one_hot[self.bond_types[i]] = one_hot_bond_features[i]
+        edge_features = []
 
-        # Create one-hot encoding for shortest path length
-        one_hot_shortest_path_features = np.zeros((self.max_path_length, self.max_path_length))
-        np.fill_diagonal(one_hot_shortest_path_features, 1.)
-        bond_to_shortest_path_one_hot = dict()
-        for i in range(self.max_path_length):
-            bond_to_shortest_path_one_hot[i + 1] = one_hot_shortest_path_features[i]
+        for a, b in itertools.combinations(list(np.arange(num_atoms)), 2):
+            bond_feature = []
+            bond = mol.GetBondBetweenAtoms(int(a), int(b))
+            if bond is None:
+                if self.bond_type:
+                    bond_feature += [1] + [0]*len(self.bond_types)
 
-        # Extract atom indices participating in bonds and bond types
-        bonds = []
-        bond_types = []
-        for bond in mol.GetBonds():
-            bonds.append([bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()])
-            bond_types.append([bond_to_one_hot[bond.GetBondTypeAsDouble()]])
+                if self.conjugated:
+                    bond_feature += [0]
 
-        # Compute edge attributes: 1 indicates presence of bond, 0 no bond. This is concatenated with one-hot bond feat.
-        full_edges = [list(data.edge_index[:, i].numpy()) for i in range(data.edge_index.shape[1])]
-        shortest_path_lengths = [bond_to_shortest_path_one_hot[len(rdmolops.GetShortestPath(mol, int(x[0]), int(x[1])))
-                                                               - 1] for x in full_edges]
-        no_bond = np.concatenate([np.array([0]), bond_to_one_hot[0]])
-        a = np.array([1])
-        edge_attr = [np.concatenate([a, bond_types[bonds.index(full_edges[i])][0], shortest_path_lengths[i]]) if
-                     full_edges[i] in bonds else np.concatenate([no_bond, shortest_path_lengths[i]]) for i in
-                     range(len(full_edges))]
-        data.edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+                if self.bond_ring:
+                    bond_feature += [0]
+
+                if self.bond_stereo:
+                    bond_feature += [0]*len(self.bond_stereo_types)
+
+                if self.shortest_path:
+                    path_len = len(rdmolops.GetShortestPath(mol, int(a), int(b))) - 1
+                    bond_feature += to_one_hot(path_len - 1, range(self.max_path_length))
+
+                if self.same_ring:
+                    ring_info = list(mol.GetRingInfo().AtomRings())
+                    membership = [int(a) in r and int(b) in r for r in ring_info]
+                    if sum(membership) > 0:
+                        bond_feature += [1]
+                    else:
+                        bond_feature += [0]
+
+            else:
+                if self.bond_type:
+                    bond_feature += [0]
+                    bond_feature += to_one_hot(bond.GetBondTypeAsDouble(), self.bond_types)
+
+                if self.conjugated:
+                    bond_feature += [bond.GetIsConjugated()]
+
+                if self.bond_ring:
+                    bond_feature += [bond.IsInRing()]
+
+                if self.bond_stereo:
+                    bond_feature += to_one_hot(bond.GetStereo(), self.bond_stereo_types)
+
+                if self.shortest_path:
+                    path_len = len(rdmolops.GetShortestPath(mol, int(a), int(b))) - 1
+                    bond_feature += to_one_hot(path_len - 1, range(self.max_path_length))
+
+                if self.same_ring:
+                    ring_info = list(mol.GetRingInfo().AtomRings())
+                    membership = [int(a) in r and int(b) in r for r in ring_info]
+                    if sum(membership) > 0:
+                        bond_feature += [1]
+                    else:
+                        bond_feature += [0]
+
+            edge_features.append(bond_feature)
+
+        data.edge_attr = torch.tensor(edge_features, dtype=torch.float)
 
         # Vertex features
         # List to hold all vertex features
@@ -268,6 +340,15 @@ class GraphDataset(Dataset):
                     atom_feature += [0] * len(self.mmff94_atom_types)
                 else:
                     atom_feature += to_one_hot(mmff_p.GetMMFFAtomType(i), self.mmff94_atom_types)
+
+            if self.degree:
+                atom_feature += to_one_hot(atom.GetDegree(), self.degree_types)
+
+            if self.num_hydrogen:
+                atom_feature += to_one_hot(atom.GetTotalNumHs(), self.num_hydrogen_types)
+
+            if self.num_radical_electron:
+                atom_feature += to_one_hot(atom.GetNumRadicalElectrons(), self.num_radical_electron_types)
 
             vertex_features.append(atom_feature)
 
@@ -345,6 +426,7 @@ class CNFDataset(Dataset):
         # Load the pairwise distance matrix
         _, data = distmat_to_vec(self.metadata[idx]['path'])
         dist_vec = torch.from_numpy(data)
+        # noinspection PyTypeChecker
         dist_vec = dist_vec.type(torch.float32)
 
         # Compute the number of pairwise distances before padding
@@ -358,6 +440,7 @@ class CNFDataset(Dataset):
         # Load the condition matrix
         condition = np.load(self.metadata[idx]['condition'])
         condition = torch.from_numpy(condition)
+        # noinspection PyTypeChecker
         condition = condition.type(torch.float32)
 
         # Pad the condition matrix

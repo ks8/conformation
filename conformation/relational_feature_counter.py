@@ -30,6 +30,9 @@ def relational_feature_counter(args: Args):
     bond_types = dict()
     path_lengths = dict()
     max_atoms = 0
+    atom_degrees = dict()
+    atom_num_hydrogen = dict()
+    num_radical_electrons = dict()
 
     # Process each molecule in the dataset
     for i in range(len(metadata)):
@@ -39,13 +42,28 @@ def relational_feature_counter(args: Args):
         mol = Chem.AddHs(mol)
         num_atoms = mol.GetNumAtoms()
 
-        # Process atom types
+        # Process atom types and atom degrees
         for atom in mol.GetAtoms():
             atomic_num = atom.GetAtomicNum()
+            degree = atom.GetDegree()
+            num_hydrogen = atom.GetTotalNumHs(includeNeighbors=True)
+            num_radical = atom.GetNumRadicalElectrons()
             if atomic_num in atom_types:
                 atom_types[atomic_num] += 1
             else:
                 atom_types[atomic_num] = 1
+            if degree in atom_degrees:
+                atom_degrees[degree] += 1
+            else:
+                atom_degrees[degree] = 1
+            if num_hydrogen in atom_num_hydrogen:
+                atom_num_hydrogen[num_hydrogen] += 1
+            else:
+                atom_num_hydrogen[num_hydrogen] = 1
+            if num_radical in num_radical_electrons:
+                num_radical_electrons[num_radical] += 1
+            else:
+                num_radical_electrons[num_radical] = 1
 
         # Process bond types
         for bond in mol.GetBonds():
@@ -77,7 +95,15 @@ def relational_feature_counter(args: Args):
         f.write("\n")
         f.write("Shortest Path Lengths: ")
         f.write(json.dumps(path_lengths))
+        f.write("\n")
         f.write("Max number of atoms: ")
         f.write(str(max_atoms))
-
-
+        f.write("\n")
+        f.write("Atom Degrees: ")
+        f.write(json.dumps(atom_degrees))
+        f.write("\n")
+        f.write("Atom Total Num Hs: ")
+        f.write(json.dumps(atom_num_hydrogen))
+        f.write("\n")
+        f.write("Atom Num Radical Electrons: ")
+        f.write(json.dumps(num_radical_electrons))

@@ -19,7 +19,7 @@ class Args(Tap):
     """
     System arguments.
     """
-    data_dir: str  # Path to directory containing SMILES strings files
+    data_dir: str  # Path to directory containing binary files
     save_dir: str  # Path to directory containing output files
     param_path: str = "/data/swansonk1/anaconda3/envs/my-rdkit-env/Tinker-FFE/tinker/params/mmff"  # Tinker param file
     integrator: str = "verlet"  # Integrator
@@ -55,16 +55,14 @@ def tinker(args: Args) -> None:
             molecule_name = f[:f.find(".")]
             sdf_name = os.path.join(args.save_dir, molecule_name + "." + "sdf")
             key_name = os.path.join(args.save_dir, molecule_name + "." + "key")
-            with open(os.path.join(args.data_dir, f)) as tmp:
-                smiles = tmp.readlines()[0].split()[0]
 
             # Initialize conformation counter
             counter = 0
 
             try:
                 # Generate initial MMFF-minimized RDKit conformations from which to start MD simulations
-                m = Chem.MolFromSmiles(smiles)
-                m2 = Chem.AddHs(m)
+                # noinspection PyUnresolvedReferences
+                m2 = Chem.Mol(open(os.path.join(args.data_dir, f), "rb").read())
                 _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_starts, maxAttempts=args.max_attempts)
                 _ = AllChem.MMFFOptimizeMoleculeConfs(m2)
                 print(rdmolfiles.MolToPDBBlock(m2), file=open(molecule_name, "w+"))
@@ -99,9 +97,9 @@ def tinker(args: Args) -> None:
                 # Remove extraneous key files
                 os.system("rm " + molecule_name + "*." + "key ")
 
-                # Create an overall molecule object for writing generated conformations to PDB file
-                mol = Chem.MolFromSmiles(smiles)
-                mol = Chem.AddHs(mol)
+                # Create an overall molecule object for writing generated conformations to binary file
+                # noinspection PyUnresolvedReferences
+                mol = Chem.Mol(open(os.path.join(args.data_dir, f), "rb").read())
 
                 # Run MD simulations and conformation extraction for each RDKit initial configuration
                 for j in range(args.num_starts):
@@ -115,10 +113,9 @@ def tinker(args: Args) -> None:
                                   str(args.num_steps) + " " + str(args.time_step) + " " + str(args.save_step) + " " +
                                   str(args.ensemble) + " " + str(args.temp))
 
-                        # TODO: consider removing any code related to computing dihedral/energy
                         # Create a random conformation object, used for computing properties
-                        m = Chem.MolFromSmiles(smiles)
-                        m2 = Chem.AddHs(m)
+                        # noinspection PyUnresolvedReferences
+                        m2 = Chem.Mol(open(os.path.join(args.data_dir, f), "rb").read())
                         _ = AllChem.EmbedMultipleConfs(m2, numConfs=1, maxAttempts=10*args.max_attempts)
                         c = m2.GetConformers()[0]
 

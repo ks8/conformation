@@ -100,6 +100,7 @@ def tinker(args: Args) -> None:
                 # Create an overall molecule object for writing generated conformations to binary file
                 # noinspection PyUnresolvedReferences
                 mol = Chem.Mol(open(os.path.join(args.data_dir, f), "rb").read())
+                mol.RemoveAllConformers()  # Clear existing conformers
 
                 # Run MD simulations and conformation extraction for each RDKit initial configuration
                 for j in range(args.num_starts):

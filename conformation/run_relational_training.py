@@ -17,6 +17,7 @@ from conformation.dataset import GraphDataset
 from conformation.relational import RelationalNetwork
 from conformation.relational_jonas import MPMLPOutNet
 from conformation.relational_utils import load_relational_checkpoint
+from conformation.sampler import MoleculeSampler
 from conformation.train_args_relational import Args
 from conformation.utils import param_count
 
@@ -198,7 +199,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                               num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
                               bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
                               bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
-                              same_ring=args.same_ring)
+                              same_ring=args.same_ring, autoencoder=args.autoencoder)
     val_data = GraphDataset(validation_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                             max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                             partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -216,7 +217,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                             num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
                             bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
                             bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
-                            same_ring=args.same_ring)
+                            same_ring=args.same_ring, autoencoder=args.autoencoder)
     test_data = GraphDataset(test_metadata, atom_types=args.atom_types, bond_types=args.bond_types,
                              max_path_length=args.max_shortest_path_length, atomic_num=args.atomic_num,
                              partial_charge=args.partial_charge, mmff_atom_types_one_hot=args.mmff_atom_types_one_hot,
@@ -234,7 +235,7 @@ def run_relational_training(args: Args, logger: Logger) -> None:
                              num_radical_electron=args.num_radical_electron, conjugated=args.conjugated,
                              bond_type=args.bond_type, bond_ring=args.bond_ring, bond_stereo=args.bond_stereo,
                              bond_stereo_types=args.bond_stereo_types, shortest_path=args.shortest_path,
-                             same_ring=args.same_ring)
+                             same_ring=args.same_ring, autoencoder=args.autoencoder)
 
     train_data_length, val_data_length, test_data_length = len(train_data), len(val_data), len(test_data)
     debug(f'train size = {train_data_length:,} | val size = {val_data_length:,} | test size = {test_data_length:,}'
@@ -246,9 +247,12 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         val_data = DataLoaderImproved(val_data, args.batch_size)
         test_data = DataLoaderImproved(test_data, args.batch_size)
     else:
-        train_data = DataLoader(train_data, args.batch_size)
-        val_data = DataLoader(val_data, args.batch_size)
-        test_data = DataLoader(test_data, args.batch_size)
+        train_data = DataLoader(train_data, args.batch_size, shuffle=False,
+                                sampler=MoleculeSampler(train_data, args.random_sample))
+        val_data = DataLoader(val_data, args.batch_size, shuffle=False,
+                              sampler=MoleculeSampler(train_data, args.random_sample))
+        test_data = DataLoader(test_data, args.batch_size, shuffle=False,
+                               sampler=MoleculeSampler(train_data, args.random_sample))
 
     # Load/build model
     if args.checkpoint_path is not None:
@@ -268,6 +272,8 @@ def run_relational_training(args: Args, logger: Logger) -> None:
         if args.shortest_path:
             args.num_edge_features += args.max_shortest_path_length
         if args.same_ring:
+            args.num_edge_features += 1
+        if args.autoencoder:
             args.num_edge_features += 1
         if args.atomic_num:
             args.num_vertex_features += len(args.atom_types)

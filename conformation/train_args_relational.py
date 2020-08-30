@@ -15,6 +15,8 @@ class Args(Tap):
     checkpoint_path: str = None  # Directory of checkpoint to load saved model
     save_dir: str  # Save directory
     improved_architecture: bool = False  # Whether or not to use improved architecture
+    autoencoder: bool = False  # Whether or not to run autoencoder training
+    random_sample: float = 1.0  # Fraction of data to sample from in order to create train/val/test sets
     max_atoms: int = 26  # Maximum number of atoms in a given molecule (improved_architecture = True)
     num_epochs: int  # Number of training epochs
     num_layers: int = 10  # Number of layers

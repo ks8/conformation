@@ -67,7 +67,7 @@ class GraphDataset(Dataset):
                  num_hydrogen: bool = True, num_radical_electron_types: List[int] = None,
                  num_radical_electron: bool = True, conjugated: bool = True, bond_type: bool = True,
                  bond_ring: bool = True, bond_stereo: bool = True, bond_stereo_types: List[int] = None,
-                 shortest_path: bool = True, same_ring: bool = True):
+                 shortest_path: bool = True, same_ring: bool = True, autoencoder: bool = False):
         """
         Custom dataset for molecular graphs.
         :param metadata: Metadata contents.
@@ -108,6 +108,7 @@ class GraphDataset(Dataset):
         :param bond_stereo_types: List of bond stereo types.
         :param shortest_path: Whether or not to include shortest path length as a bond feature.
         :param same_ring: Whether or not to include same ring as bond feature.
+        :param autoencoder: Whether or not to prepare data for autoencoder training.
         """
         super(Dataset, self).__init__()
         if bond_types is None:
@@ -190,6 +191,7 @@ class GraphDataset(Dataset):
             self.bond_stereo_types = bond_stereo_types
         self.shortest_path = shortest_path
         self.same_ring = same_ring
+        self.autoencoder = autoencoder
 
     def __len__(self) -> int:
         return len(self.metadata)
@@ -207,6 +209,12 @@ class GraphDataset(Dataset):
         mol = Chem.Mol(open(self.metadata[idx]['binary'], "rb").read())
         num_atoms = mol.GetNumAtoms()
 
+        # Target
+        if self.target:
+            # Target: 1-D tensor representing average inter-atomic distance for each edge
+            target = np.load(self.metadata[idx]['target'])
+            data.y = torch.tensor(target, dtype=torch.float)
+
         # Compute edge connectivity in COO format corresponding to a complete graph on num_nodes
         complete_graph = np.ones([num_atoms, num_atoms])  # Create an auxiliary complete graph
         complete_graph = np.triu(complete_graph, k=1)  # Compute an upper triangular matrix of the complete graph
@@ -219,6 +227,7 @@ class GraphDataset(Dataset):
         # Edge features
         edge_features = []
 
+        edge_count = 0
         for a, b in itertools.combinations(list(np.arange(num_atoms)), 2):
             bond_feature = []
             bond = mol.GetBondBetweenAtoms(int(a), int(b))
@@ -247,6 +256,10 @@ class GraphDataset(Dataset):
                     else:
                         bond_feature += [0]
 
+                if self.autoencoder:
+                    # noinspection PyUnboundLocalVariable
+                    bond_feature += [target[:, 0][edge_count]]
+
             else:
                 if self.bond_type:
                     bond_feature += [0]
@@ -272,6 +285,11 @@ class GraphDataset(Dataset):
                         bond_feature += [1]
                     else:
                         bond_feature += [0]
+
+                if self.autoencoder:
+                    bond_feature += [target[:, 0][edge_count]]
+
+            edge_count += 1
 
             edge_features.append(bond_feature)
 
@@ -353,12 +371,6 @@ class GraphDataset(Dataset):
             vertex_features.append(atom_feature)
 
         data.x = torch.tensor(vertex_features, dtype=torch.float)
-
-        # Target
-        if self.target:
-            # Target: 1-D tensor representing average inter-atomic distance for each edge
-            target = np.load(self.metadata[idx]['target'])
-            data.y = torch.tensor(target, dtype=torch.float)
 
         # UID
         data.uid = torch.tensor([int(self.metadata[idx]['uid'])])

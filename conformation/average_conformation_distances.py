@@ -16,6 +16,7 @@ class Args(Tap):
     """
     data_dir: str  # Path to directory containing all distance matrices
     save_dir: str  # Path to directory containing output files (average distances)
+    autoencoder: bool = False  # Whether or not to prepare autoencoder targets
 
 
 def average_conformation_distances(args: Args) -> None:
@@ -29,7 +30,11 @@ def average_conformation_distances(args: Args) -> None:
     for root, _, files_dist in os.walk(args.data_dir):
         for f_dist in files_dist:
             path = os.path.join(root, f_dist)
-            molecule_name = f_dist[[m.start() for m in re.finditer("-", f_dist)][1] + 1:f_dist.find(".")]
+            dash_indices = [m.start() for m in re.finditer("-", f_dist)]
+            molecule_name = f_dist[dash_indices[1] + 1:f_dist.find(".")]
+            if args.autoencoder:
+                conf_num = f_dist[dash_indices[0] + 1:dash_indices[1]]
+                molecule_name += "-" + conf_num
             _, dist_vec = distmat_to_vec(path)
             if molecule_name in avg_std_dist:
                 avg_std_dist[molecule_name].append(dist_vec)

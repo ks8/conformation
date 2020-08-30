@@ -24,6 +24,7 @@ class Args(Tap):
     data_dir: str  # Path to directory containing data
     save_dir: str  # Path to directory containing output file
     mpnn: bool = False  # Whether or not to produce metadata for graph neural network training
+    autoencoder: bool = False  # Whether or not to produce metadata for graph neural network autoencoder training
     cnf: bool = False  # Whether or not to produce metadata for conditional normalizing flow training
     graph_model_path: str = None  # Path to saved graph model (cnf = True)
     smiles_dir: str = None  # Path to directory containing smiles strings (mpnn or cnf = True)
@@ -66,7 +67,11 @@ def metadata(args: Args) -> None:
         for f in files:
             path = os.path.join(root, f)
             if args.mpnn:
-                molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
+                if args.autoencoder:
+                    dashes = [m.start() for m in re.finditer("-", f)]
+                    molecule_name = f[dashes[1] + 1:dashes[2]]
+                else:
+                    molecule_name = f[[m.start() for m in re.finditer("-", f)][1] + 1:f.find(".")]
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
                     smiles = tmp.readlines()[0].split()[0]
                 binary_path = os.path.join(args.binary_dir, molecule_name + ".bin")

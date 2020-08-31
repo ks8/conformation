@@ -25,9 +25,10 @@ class Args(Tap):
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     rmsd_threshold: float = 0.65  # RMSD threshold for determining identical conformations
+    rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
-    post_minimize: bool = False  # Whether or not to energy-minimized final unique samples
+    post_rmsd: bool = False  # Whether or not to energy-minimize saved samples after MC
     cartesian_coords: bool = False  # Whether or not to use internal coordinates or Cartesian coordinates
     clip_deviation: float = 2.0  # Distance of clip values for truncated normal on either side of the mean
     trunc_std: float = 1.0  # Standard deviation desired for truncated normal
@@ -70,6 +71,7 @@ def rdkit_metropolis(args: Args) -> None:
     lowest_energy = res[0][1]
 
     # Run MC steps
+    num_accepted = 0
     for step in range(args.num_steps):
         # Initialize proposed sample
         proposed_sample = copy.deepcopy(current_sample)
@@ -128,7 +130,11 @@ def rdkit_metropolis(args: Args) -> None:
             # Save the proposed sample to the list of conformations if it is unique
             unique = True
             for i in range(len(conformation_molecules)):
-                rmsd = rdMolAlign.AlignMol(conformation_molecules[i], proposed_sample)
+                if args.rmsd_remove_Hs:
+                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(conformation_molecules[i]),
+                                                 Chem.RemoveHs(proposed_sample))
+                else:
+                    rmsd = rdMolAlign.GetBestRMS(conformation_molecules[i], proposed_sample)
                 if rmsd < args.rmsd_threshold or res[0][1] - lowest_energy > args.e_threshold:
                     unique = False
                     break
@@ -138,10 +144,21 @@ def rdkit_metropolis(args: Args) -> None:
                 if res[0][1] < lowest_energy:
                     lowest_energy = res[0][1]
 
+            num_accepted += 1
+
         if step % args.log_frequency == 0:
             print(f'Steps Completed: {step}, Num Conformations: {len(conformation_molecules)}')
 
     print(f'Number of Unique Conformations Identified: {len(conformation_molecules)}')
+    print(f'% Moves Accepted: {float(num_accepted)/float(args.num_steps)}')
+
+    with open(args.save_path + "-info.txt", "w") as f:
+        f.write("Number of Rotatable Bonds: " + str(len(rotatable_bonds)))
+        f.write('\n')
+        f.write("Number of Unique Conformations Identified: " + str(len(conformation_molecules)))
+        f.write('\n')
+        f.write("% Moves Accepted: " + str(float(num_accepted)/float(args.num_steps)))
+        f.write('\n')
 
     # Save unique conformers in molecule object
     for i in range(len(conformation_molecules)):
@@ -154,15 +171,66 @@ def rdkit_metropolis(args: Args) -> None:
     with open(args.save_path + "-conformations.bin", "wb") as b:
         b.write(bin_str)
 
-    if args.post_minimize:
+    if not args.minimize:
         res = AllChem.MMFFOptimizeMoleculeConfs(mol)
-        energies = []
+        post_minimize_energies = []
         for i in range(len(res)):
-            energies.append(res[i][1])
+            post_minimize_energies.append(res[i][1])
 
-    # Compute energy distribution
+    if args.post_rmsd:
+        # List of unique post-minimization molecules
+        post_conformation_molecules = []
+
+        # Add an initial molecule to the list
+        post_mol = copy.deepcopy(mol)
+        post_mol.RemoveAllConformers()
+        c = mol.GetConformers()[0]
+        c.SetId(0)
+        post_mol.AddConformer(c)
+        post_conformation_molecules.append(post_mol)
+
+        # Loop through the remaining conformations to find unique ones
+        for i in range(1, mol.GetNumConformers()):
+            # Create a molecule with the current conformation we are checking for uniqueness
+            post_mol = copy.deepcopy(mol)
+            post_mol.RemoveAllConformers()
+            c = mol.GetConformers()[i]
+            c.SetId(0)
+            post_mol.AddConformer(c)
+            unique = True
+            for j in range(len(post_conformation_molecules)):
+                # Check for uniqueness
+                if args.rmsd_remove_Hs:
+                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(post_conformation_molecules[j]), Chem.RemoveHs(post_mol))
+                else:
+                    rmsd = rdMolAlign.GetBestRMS(post_conformation_molecules[j], post_mol)
+                if rmsd < args.rmsd_threshold:
+                    unique = False
+                    break
+
+            if unique:
+                post_conformation_molecules.append(post_mol)
+
+        print(f'Number of Unique Post Minimization Conformations Identified: {len(post_conformation_molecules)}')
+        with open(args.save_path + "-info.txt", "a") as f:
+            f.write("Number of Unique Post Minimization Conformations: " + str(len(post_conformation_molecules)))
+            f.write('\n')
+
+    # Compute energy distributions
     fig, ax = plt.subplots()
     sns.distplot(energies, ax=ax)
     ax.set_xlabel("Energy (kcal/mol)")
     ax.set_ylabel("Density")
-    ax.figure.savefig(args.save_path + "-energy-distribution")
+    ax.figure.savefig(args.save_path + "-energy-distribution.png")
+    plt.clf()
+    plt.close()
+
+    if not args.minimize:
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.distplot(post_minimize_energies, ax=ax)
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Density")
+        ax.figure.savefig(args.save_path + "-post-minimized-energy-distribution.png")
+        plt.clf()
+        plt.close()

@@ -1,7 +1,11 @@
 """ Systematic conformer search using Confab via Open Babel
 https://open-babel.readthedocs.io/en/latest/3DStructureGen/multipleconformers.html. """
+import matplotlib.pyplot as plt
 import os
 
+from rdkit import Chem
+from rdkit.Chem import AllChem
+import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
 
@@ -34,6 +38,33 @@ def systematic_search(args: Args):
     os.system("obabel tmp.sdf -O " + args.save_path + ".sdf --confab --rcutoff " + str(args.rcutoff) + " --ecutoff " +
               str(args.ecutoff) + " --conf " + str(args.conf) + " --verbose")
 
+    # Compute energy distribution with Open Babel (kcal/mol)
+    energies = []
+    os.system("obenergy -h -ff MMFF94 " + args.save_path + ".sdf > tmp.energy")
+    with open("tmp.energy", "r") as f:
+        for line in f:
+            if "TOTAL ENERGY" in line:
+                energies.append(float(line.split()[3]))
+
+    # Compute energies with RDKit
+    rdkit_energies = []
+    suppl = Chem.SDMolSupplier(args.save_path + ".sdf", removeHs=False)
+    for i, mol in enumerate(suppl):
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+        rdkit_energies.append(res[0][1])
+
+    # Plot energy distributions
+    info = ["energy", "rdkit-energy"]
+    for i, elements in enumerate([energies, rdkit_energies]):
+        fig, ax = plt.subplots()
+        sns.distplot(elements, ax=ax)
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Density")
+        ax.figure.savefig(args.save_path + "-" + info[i] + "-distribution.png")
+        plt.clf()
+        plt.close()
+
     # Remove auxiliary files
     os.remove("tmp.smi")
     os.remove("tmp.sdf")
+    os.remove("tmp.energy")

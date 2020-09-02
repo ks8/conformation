@@ -64,6 +64,7 @@ class Args(Tap):
     shortest_path: bool = True  # Whether or not to include shortest path length as an edge feature
     same_ring: bool = True  # Whether or not to include shortest path length as an edge feature
     num_workers: int = 8  # Chemprop training parallelization number of workers
+    gpu_device: int = 0  # Which GPU to use
 
     def __init__(self):
         super(Args, self).__init__()

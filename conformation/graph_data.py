@@ -2,7 +2,7 @@
 import torch
 from typing import Callable, Dict, List, Union
 
-from conformation.utils import contains_isolated_nodes, contains_self_loops
+from conformation.graph_utils import contains_isolated_nodes, contains_self_loops
 
 
 class Data(object):

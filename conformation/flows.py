@@ -1,10 +1,144 @@
 """ Normalizing flows class definitions. """
+import math
 import numpy as np
 from typing import List, Tuple, Union
 
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
+
+from conformation.batch import Batch
+from conformation.relational import RelationalNetwork
+
+
+class GRevNet(nn.Module):
+    """
+    Performs a single (half) layer of the GRevNet flow.
+    """
+
+    def __init__(self, s: RelationalNetwork, t: RelationalNetwork, mask: int) -> None:
+        """
+        :param s: F1 (scaling) in GNF paper.
+        :param t: F2 (translation) in GNF paper.
+        :param mask: Binary variable indicating whether or not to update left half (0) or right half (1) of features.
+        """
+        super(GRevNet, self).__init__()
+        self.s = s
+        self.t = t
+        self.mask = mask
+
+    def construct_batch_halves(self, batch: Batch) -> Tuple[Batch, Batch, Batch, Batch]:
+        """
+        Construct Batch objects representing the first and second halves of the node/edge features
+        :param batch: Graph batch
+        :return:
+        """
+        # Construct Batch objects representing the first and second halves of the node/edge features
+        batch_0 = Batch()
+        batch_0.edge_index = batch.edge_index
+        batch_0.y = batch.y
+        batch_0.batch = batch.batch
+        batch_0.edge_membership = batch.edge_membership
+
+        batch_1 = Batch()
+        batch_1.edge_index = batch.edge_index
+        batch_1.y = batch.y
+        batch_1.batch = batch.batch
+        batch_1.edge_membership = batch.edge_membership
+
+        # Split the node and edge features
+        batch_0.x, batch_1.x = torch.split(batch.x, math.ceil(batch.x.shape[1] / 2), dim=1)
+        batch_0.edge_attr, batch_1.edge_attr = torch.split(batch.edge_attr,
+                                                           math.ceil(batch.edge_attr.shape[1] / 2), dim=1)
+
+        # Update the features
+        if self.mask == 0:
+            input_batch = batch_1
+            update_batch = batch_0
+        else:
+            input_batch = batch_0
+            update_batch = batch_1
+
+        return input_batch, update_batch, batch_0, batch_1
+
+    def new_batch(self, batch_0: Batch, batch_1: Batch, update_batch: Batch) -> Batch:
+        """
+        Construct Batch object representing the updated node/edge features.
+        :param batch_0: Left half.
+        :param batch_1: Right half.
+        :param update_batch: Updated batch (left or right, depending on mask value).
+        :return: Concatenated batch.
+        """
+        if self.mask == 0:
+            batch_0 = update_batch
+        else:
+            batch_1 = update_batch
+
+        # Construct Batch object representing the updated node/edge features
+        completed_batch = Batch()
+        completed_batch.edge_index = update_batch.edge_index
+        completed_batch.y = update_batch.y
+        completed_batch.batch = update_batch.batch
+        completed_batch.edge_membership = update_batch.edge_membership
+        # noinspection PyArgumentList
+        completed_batch.x = torch.cat([batch_0.x, batch_1.x], axis=1)
+        # noinspection PyArgumentList
+        completed_batch.edge_attr = torch.cat([batch_0.edge_attr, batch_1.edge_attr], axis=1)
+
+        return completed_batch
+
+    def forward(self, batch: Batch) -> Batch:
+        """
+        Transform a sample from the base distribution or previous layer.
+        :param batch: Graph batch.
+        :return: Updated batch (i.e., updated edge/node features) in the direction towards the target distribution.
+        """
+        input_batch, update_batch, batch_0, batch_1 = self.construct_batch_halves(batch)
+
+        v_i_s, e_ij_s = self.s(input_batch)
+        v_i_t, e_ij_t = self.t(input_batch)
+        v_i_s = torch.exp(v_i_s)
+        e_ij_s = torch.exp(e_ij_s)
+        update_batch.x = update_batch.x * v_i_s + v_i_t
+        update_batch.edge_attr = update_batch.edge_attr * e_ij_s + e_ij_t
+
+        completed_batch = self.new_batch(batch_0, batch_1, update_batch)
+
+        return completed_batch
+
+    def inverse(self, batch: Batch) -> Batch:
+        """
+        Compute the inverse of a target sample or a sample from the next layer.
+        :param batch: Graph batch.
+        :return: Inverse sample (in the direction towards the base distribution).
+        """
+        input_batch, update_batch, batch_0, batch_1 = self.construct_batch_halves(batch)
+
+        v_i_s, e_ij_s = self.s(input_batch)
+        v_i_t, e_ij_t = self.t(input_batch)
+        v_i_s = torch.exp(-v_i_s)
+        e_ij_s = torch.exp(-e_ij_s)
+        update_batch.x = (update_batch.x - v_i_t) * v_i_s
+        update_batch.edge_attr = (update_batch.edge_attr - e_ij_t) * e_ij_s
+
+        completed_batch = self.new_batch(batch_0, batch_1, update_batch)
+
+        return completed_batch
+
+    def log_abs_det_jacobian(self, batch: Batch) -> torch.Tensor:
+        """
+        Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
+        direction.
+        :param batch: Graph batch.
+        :return: log abs det jacobian.
+        """
+        log_det_j = []
+        input_batch, update_batch, batch_0, batch_1 = self.construct_batch_halves(batch)
+        v_i_s, e_ij_s = self.s(input_batch)
+        for i in range(batch.num_graphs):
+            log_det_j.append(v_i_s[batch.batch == i, :].sum() + e_ij_s[batch.edge_membership == i, :].sum())
+
+        return torch.tensor(log_det_j)
 
 
 class RealNVP(nn.Module):
@@ -272,7 +406,6 @@ class NormalizingFlowModel(nn.Module):
         for b in range(sample_layers):
             x = self.bijectors[b](x)  # Process a sample through the flow
         return x
-
 
 # class CNFFlowModel(nn.Module):
 #     """

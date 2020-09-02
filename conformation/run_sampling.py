@@ -51,7 +51,7 @@ def run_sampling(args: Args) -> None:
     # Load model
     if args.checkpoint_path is not None:
         print('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda,args.gpu_device)
+        model = load_checkpoint(args.checkpoint_path, args.cuda, args.gpu_device)
 
         print(model)
         print('Number of parameters = {:,}'.format(param_count(model)))

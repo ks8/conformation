@@ -15,6 +15,7 @@ class Batch(Data):
     def __init__(self, batch=None, **kwargs):
         super(Batch, self).__init__(**kwargs)
         self.batch = batch
+        self.edge_membership = []
 
     @staticmethod
     def from_data_list(data_list: List[Data]) -> "Batch":
@@ -37,6 +38,7 @@ class Batch(Data):
         for i, data in enumerate(data_list):
             num_nodes = data.num_nodes
             batch.batch.append(torch.full((num_nodes, ), i, dtype=torch.long))
+            batch.edge_membership.append(torch.full((data.num_edges, ), i, dtype=torch.long))
             for key in keys:
                 item = data[key]
                 # Ensures that the cumulative edge_index matrix of the batch will
@@ -49,6 +51,7 @@ class Batch(Data):
             # Concatenates batch['edge_index'] differently than the others (and also possibly batch['y'])
             batch[key] = torch.cat(batch[key], dim=data_list[0].cat_dim(key))
         batch.batch = torch.cat(batch.batch, dim=-1)
+        batch.edge_membership = torch.cat(batch.edge_membership, dim=-1)
         return batch.contiguous()
 
     @staticmethod

@@ -3,14 +3,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from conformation.utils import to_undirected
+from conformation.graph_utils import to_undirected
 
 
 class RelationalNetwork(torch.nn.Module):
     """ Relational network definition """
 
     def __init__(self, hidden_size=256, num_layers=32, num_edge_features=None, num_vertex_features=None,
-                 final_linear_size=1024, final_output_size=1, cnf=False):
+                 final_linear_size=1024, final_output_size=1, cnf=False, gnf=False):
         super(RelationalNetwork, self).__init__()
         self.hidden_size = hidden_size  # Internal feature size
         self.num_layers = num_layers  # Number of relational layers
@@ -35,6 +35,7 @@ class RelationalNetwork(torch.nn.Module):
         self.final_linear_layer = torch.nn.Linear(self.hidden_size, self.final_linear_size)  # Final linear layer
         self.output_layer = torch.nn.Linear(self.final_linear_size, self.final_output_size)  # Output layer
         self.cnf = cnf  # Whether or not we are using this for a conditional normalizing flow
+        self.gnf = gnf  # Whether or not we are using this for a graph normalizing flow
 
     def forward(self, batch):
         """
@@ -77,5 +78,7 @@ class RelationalNetwork(torch.nn.Module):
 
         if self.cnf:
             return e_ij_in
+        elif self.gnf:
+            return v_i_in, e_ij_in
         else:
             return preds

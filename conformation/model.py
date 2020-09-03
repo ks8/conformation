@@ -6,9 +6,11 @@ import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
 
-from conformation.flows import NormalizingFlowModel
-from conformation.flows import RealNVP
+from conformation.flows import NormalizingFlowModel, GNFFlowModel
+from conformation.flows import RealNVP, GRevNet
+from conformation.relational import RelationalNetwork
 from conformation.train_args import Args
+from conformation.train_args_relational import Args as TrainArgsRelational
 
 
 def nets(input_dim: int, hidden_size: int) -> nn.Sequential:
@@ -64,3 +66,30 @@ def build_model(args: Args) -> NormalizingFlowModel:
         return NormalizingFlowModel(biject, conditional=True)
     else:
         return NormalizingFlowModel(biject, base_dist)
+
+
+def build_gnf_model(args: TrainArgsRelational) -> GNFFlowModel:
+    """
+    Build a GNF normalizing flow.
+    :param args: System parameters.
+    :return: Module defining the normalizing flow.
+    """
+    if args.cuda:
+        device = torch.device(args.gpu_device)
+    else:
+        device = torch.device('cpu')
+
+    # Define the base distribution
+    base_dist = MultivariateNormal(torch.zeros(1, device=device), torch.eye(1, device=device))
+    
+    # Form the network layers
+    biject = []
+    for i in range(args.num_layers):
+        s = RelationalNetwork(int(args.hidden_size / 2), 1, int(args.hidden_size / 2), int(args.hidden_size / 2),
+                              args.final_linear_size, args.final_output_size, gnf=True)
+        t = RelationalNetwork(int(args.hidden_size / 2), 1, int(args.hidden_size / 2), int(args.hidden_size / 2),
+                              args.final_linear_size, args.final_output_size, gnf=True)
+        mask = i % 2
+        biject.append(GRevNet(s, t, mask))
+
+    return GNFFlowModel(biject, base_dist)

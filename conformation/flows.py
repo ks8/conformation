@@ -135,6 +135,8 @@ class GRevNet(nn.Module):
         log_det_j = []
         input_batch, update_batch, batch_0, batch_1 = self.construct_batch_halves(batch)
         v_i_s, e_ij_s = self.s(input_batch)
+        v_i_s = torch.exp(v_i_s)
+        e_ij_s = torch.exp(e_ij_s)
         for i in range(batch.num_graphs):
             log_det_j.append(v_i_s[batch.batch == i, :].sum() + e_ij_s[batch.edge_membership == i, :].sum())
 
@@ -377,6 +379,64 @@ class NormalizingFlowModel(nn.Module):
         if self.conditional:
             u = self.output_layer(self.linear_layer(c))
             return x, self.log_det, u.squeeze(2)
+        else:
+            return x, self.log_det
+
+    def sample(self, sample_layers: int, condition_path: str = None, device: torch.device = None) -> torch.Tensor:
+        """
+        Produce samples by processing a sample from the base distribution through the normalizing flow.
+        :param sample_layers: Number of layers to use for sampling.
+        :param condition_path: Path to condition numpy file.
+        :param device: CPU or GPU for tensor conversion.
+        :return: Sample from the approximate target distribution.
+        """
+        if condition_path is not None:
+            condition = np.load(condition_path)
+            condition = torch.from_numpy(condition)
+            condition = condition.type(torch.float32)
+            padding = torch.zeros([self.padding_dim, self.condition_dim], device=device)
+            padding[0:condition.shape[0], :] = condition
+            condition = padding
+
+            u = self.output_layer(self.linear_layer(condition)).squeeze(1)
+            base_dist = MultivariateNormal(u, torch.eye(self.padding_dim, device=device))
+
+        else:
+            base_dist = self.base_dist
+
+        x = base_dist.sample()
+        for b in range(sample_layers):
+            x = self.bijectors[b](x)  # Process a sample through the flow
+        return x
+
+
+class GNFFlowModel(nn.Module):
+    """
+    GNF class. The forward function computes the cumulative log absolute value of the determinant of the
+    jacobians of the transformations, and the sample function samples from the flow starting at the base distribution.
+    """
+
+    def __init__(self, biject: List[GRevNet], base_dist: MultivariateNormal):
+        """
+        :param biject: List of flow layers.
+        :param base_dist: Base distribution, specified for non-conditional flow.
+        """
+        super(GNFFlowModel, self).__init__()
+        self.biject = biject
+        self.base_dist = base_dist
+        self.bijectors = nn.ModuleList(self.biject)
+        self.log_det = []
+
+    def forward(self, x: Batch) -> Tuple[Batch, List[torch.Tensor]]:
+        """
+        Compute the inverse of a target distribution sample as well as the log abs det jacobians of the transformations.
+        :param x: Target sample.
+        :return: Inverse, log abs det jacobians.
+        """
+        self.log_det = []  # Accumulate the log abs det jacobians of the transformations
+        for b in range(len(self.bijectors) - 1, -1, -1):
+            self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
+            x = self.bijectors[b].inverse(x)
         else:
             return x, self.log_det
 

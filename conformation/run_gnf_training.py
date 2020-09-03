@@ -15,6 +15,7 @@ from tqdm import tqdm, trange
 from conformation.dataloader import DataLoader
 from conformation.dataset import GraphDataset
 from conformation.flows import GRevNet
+from conformation.model import build_gnf_model
 from conformation.relational import RelationalNetwork
 from conformation.sampler import MoleculeSampler
 from conformation.train_args_relational import Args
@@ -44,8 +45,8 @@ def train(model: nn.Module, optimizer: Adam, data: DataLoader, args: Args, logge
     for batch in tqdm(data, total=len(data)):
 
         # TODO: testing!!
-        batch.x = torch.randn([batch.x.shape[0], 256])
-        batch.edge_attr = torch.randn([batch.edge_attr.shape[0], 256])
+        batch.x = torch.randn([batch.x.shape[0], args.hidden_size])
+        batch.edge_attr = torch.randn([batch.edge_attr.shape[0], args.hidden_size])
 
         # Move batch to cuda
         if args.cuda:
@@ -55,12 +56,7 @@ def train(model: nn.Module, optimizer: Adam, data: DataLoader, args: Args, logge
         # Zero gradients
         model.zero_grad()
 
-        print(batch.x)
-        result = model(batch)
-        print(result.x)
-        inverted = model.inverse(result)
-        print(inverted.x)
-        print(model.log_abs_det_jacobian(inverted))
+        print(model(batch))
         exit()
 
     return n_iter, total_loss
@@ -209,14 +205,15 @@ def run_gnf_training(args: Args, logger: Logger) -> None:
             args.num_vertex_features += len(args.num_radical_electron_types)
 
         debug('Building model')
-        mask = 0
-        s = RelationalNetwork(int(args.hidden_size/2), 1, int(args.hidden_size/2), int(args.hidden_size/2),
-                              args.final_linear_size, args.final_output_size, gnf=True)
-
-        t = RelationalNetwork(int(args.hidden_size/2), 1, int(args.hidden_size/2), int(args.hidden_size/2),
-                              args.final_linear_size, args.final_output_size, gnf=True)
-
-        model = GRevNet(s, t, mask)
+        model = build_gnf_model(args)
+        # mask = 0
+        # s = RelationalNetwork(int(args.hidden_size/2), 1, int(args.hidden_size/2), int(args.hidden_size/2),
+        #                       args.final_linear_size, args.final_output_size, gnf=True)
+        #
+        # t = RelationalNetwork(int(args.hidden_size/2), 1, int(args.hidden_size/2), int(args.hidden_size/2),
+        #                       args.final_linear_size, args.final_output_size, gnf=True)
+        #
+        # model = GRevNet(s, t, mask)
 
     # Print model info
     debug(model)

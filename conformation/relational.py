@@ -10,7 +10,7 @@ class RelationalNetwork(torch.nn.Module):
     """ Relational network definition """
 
     def __init__(self, hidden_size=256, num_layers=32, num_edge_features=None, num_vertex_features=None,
-                 final_linear_size=1024, final_output_size=1, cnf=False, gnf=False):
+                 final_linear_size=1024, final_output_size=1, cnf=False, gnf=False, gnf_metadata=False):
         super(RelationalNetwork, self).__init__()
         self.hidden_size = hidden_size  # Internal feature size
         self.num_layers = num_layers  # Number of relational layers
@@ -36,6 +36,10 @@ class RelationalNetwork(torch.nn.Module):
         self.output_layer = torch.nn.Linear(self.final_linear_size, self.final_output_size)  # Output layer
         self.cnf = cnf  # Whether or not we are using this for a conditional normalizing flow
         self.gnf = gnf  # Whether or not we are using this for a graph normalizing flow
+        self.gnf_metadata = gnf_metadata  # Whether or not we are using this for graph normalizing flow metadata
+        if self.gnf:
+            self.final_edge_batch_norm = torch.nn.BatchNorm1d(self.hidden_size)
+            self.final_vertex_batch_norm = torch.nn.BatchNorm1d(self.hidden_size)
 
     def forward(self, batch):
         """
@@ -79,6 +83,9 @@ class RelationalNetwork(torch.nn.Module):
         if self.cnf:
             return e_ij_in
         elif self.gnf:
+            return torch.nn.ReLU()(self.final_vertex_batch_norm(v_i_in)), \
+                   torch.nn.ReLU()(self.final_edge_batch_norm(e_ij_in))
+        elif self.gnf_metadata:
             return v_i_in, e_ij_in
         else:
             return preds

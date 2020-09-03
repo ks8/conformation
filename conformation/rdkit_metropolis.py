@@ -129,15 +129,16 @@ def rdkit_metropolis(args: Args) -> None:
 
             # Save the proposed sample to the list of conformations if it is unique
             unique = True
-            for i in range(len(conformation_molecules)):
-                if args.rmsd_remove_Hs:
-                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(conformation_molecules[i]),
-                                                 Chem.RemoveHs(proposed_sample))
-                else:
-                    rmsd = rdMolAlign.GetBestRMS(conformation_molecules[i], proposed_sample)
-                if rmsd < args.rmsd_threshold or res[0][1] - lowest_energy > args.e_threshold:
-                    unique = False
-                    break
+            if args.rmsd_threshold > 0.0:
+                for i in range(len(conformation_molecules)):
+                    if args.rmsd_remove_Hs:
+                        rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(conformation_molecules[i]),
+                                                     Chem.RemoveHs(proposed_sample))
+                    else:
+                        rmsd = rdMolAlign.GetBestRMS(conformation_molecules[i], proposed_sample)
+                    if rmsd < args.rmsd_threshold or res[0][1] - lowest_energy > args.e_threshold:
+                        unique = False
+                        break
             if unique:
                 conformation_molecules.append(proposed_sample)
                 energies.append(res[0][1])

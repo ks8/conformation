@@ -108,9 +108,6 @@ def metadata(args: Args) -> None:
                 binary_path = os.path.join(args.binary_dir, molecule_name + ".bin")
                 with open(os.path.join(args.smiles_dir, molecule_name + ".smiles")) as tmp:
                     smiles = tmp.readlines()[0].split()[0]
-                uid_dict[uid] = smiles
-                binary_dict[uid] = binary_path
-                uid += 1
 
                 sample = Data()
                 # Molecule from binary
@@ -142,6 +139,7 @@ def metadata(args: Args) -> None:
                     bond_feature = []
                     bond = mol.GetBondBetweenAtoms(int(a), int(b))
                     if bond is None:
+                        # noinspection PyUnboundLocalVariable
                         if loaded_args.bond_type:
                             bond_feature += [1] + [0] * len(loaded_args.bond_types)
 
@@ -298,7 +296,10 @@ def metadata(args: Args) -> None:
                 np.save(edge_target_path, e_ij_in)
                 data.append({'smiles': smiles, 'target': [node_target_path, edge_target_path],
                              'uid': uid, 'binary': binary_path})
-                print("done")
+                uid_dict[uid] = smiles
+                binary_dict[uid] = binary_path
+                uid += 1
+                print(f'# Conformations Processed: {uid}')
 
             elif args.cnf:
                 molecule_name = f[[m.end() for m in re.finditer("-", f)][-1]:f.find(".")]

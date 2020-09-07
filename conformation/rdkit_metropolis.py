@@ -25,6 +25,7 @@ class Args(Tap):
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     rmsd_threshold: float = 0.65  # RMSD threshold for determining identical conformations
+    post_rmsd_threshold: float = 0.65  # RMSD threshold for post minimized conformations
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
@@ -173,12 +174,14 @@ def rdkit_metropolis(args: Args) -> None:
         b.write(bin_str)
 
     if not args.minimize:
-        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+        print(f'Minimizing conformations...')
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
         post_minimize_energies = []
         for i in range(len(res)):
             post_minimize_energies.append(res[i][1])
 
     if args.post_rmsd:
+        print(f'RMSD pruning...')
         # List of unique post-minimization molecules
         post_conformation_molecules = []
 
@@ -205,7 +208,7 @@ def rdkit_metropolis(args: Args) -> None:
                     rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(post_conformation_molecules[j]), Chem.RemoveHs(post_mol))
                 else:
                     rmsd = rdMolAlign.GetBestRMS(post_conformation_molecules[j], post_mol)
-                if rmsd < args.rmsd_threshold:
+                if rmsd < args.post_rmsd_threshold:
                     unique = False
                     break
 
@@ -216,6 +219,19 @@ def rdkit_metropolis(args: Args) -> None:
         with open(args.save_path + "-info.txt", "a") as f:
             f.write("Number of Unique Post Minimization Conformations: " + str(len(post_conformation_molecules)))
             f.write('\n')
+
+        # Save unique conformers in molecule object
+        post_mol = copy.deepcopy(mol)
+        post_mol.RemoveAllConformers()
+        for i in range(len(post_conformation_molecules)):
+            c = post_conformation_molecules[i].GetConformer()
+            c.SetId(i)
+            post_mol.AddConformer(c)
+
+        # Save molecule to binary file
+        bin_str = post_mol.ToBinary()
+        with open(args.save_path + "-post-minimization-rmsd-conformations.bin", "wb") as b:
+            b.write(bin_str)
 
     # Compute energy distributions
     fig, ax = plt.subplots()

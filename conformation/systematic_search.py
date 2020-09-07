@@ -1,10 +1,11 @@
 """ Systematic conformer search using Confab via Open Babel
 https://open-babel.readthedocs.io/en/latest/3DStructureGen/multipleconformers.html. """
+import copy
 import matplotlib.pyplot as plt
 import os
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolAlign
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
@@ -19,6 +20,8 @@ class Args(Tap):
     rcutoff: float = 0.5  # RMSD cutoff
     ecutoff: float = 50.0  # Energy cutoff
     conf: int = 1000000  # Maximum number of conformations to check
+    rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values via RDKit
+    post_rmsd_threshold: float = 0.65  # RMSD threshold for post minimized conformations
 
 
 def systematic_search(args: Args):
@@ -46,12 +49,44 @@ def systematic_search(args: Args):
             if "TOTAL ENERGY" in line:
                 energies.append(float(line.split()[3]))
 
-    # Compute energies with RDKit
+    # Compute minimized energies with RDKit
     rdkit_energies = []
+    post_conformation_molecules = []
     suppl = Chem.SDMolSupplier(args.save_path + ".sdf", removeHs=False)
     for i, mol in enumerate(suppl):
         res = AllChem.MMFFOptimizeMoleculeConfs(mol)
         rdkit_energies.append(res[0][1])
+        post_mol = copy.deepcopy(mol)
+        if i == 0:
+            post_conformation_molecules.append(post_mol)
+        else:
+            unique = True
+            for j in range(len(post_conformation_molecules)):
+                # Check for uniqueness
+                if args.rmsd_remove_Hs:
+                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(post_conformation_molecules[j]),
+                                                 Chem.RemoveHs(post_mol))
+                else:
+                    rmsd = rdMolAlign.GetBestRMS(post_conformation_molecules[j], post_mol)
+                if rmsd < args.post_rmsd_threshold:
+                    unique = False
+                    break
+
+            if unique:
+                post_conformation_molecules.append(post_mol)
+
+    print(f'Number of Unique Post Minimization Conformations Identified: {len(post_conformation_molecules)}')
+    # Save unique conformers in molecule object
+    post_mol = post_conformation_molecules[0]
+    for i in range(1, len(post_conformation_molecules)):
+        c = post_conformation_molecules[i].GetConformer()
+        c.SetId(i)
+        post_mol.AddConformer(c)
+
+    # Save molecule to binary file
+    bin_str = post_mol.ToBinary()
+    with open(args.save_path + "-post-minimization-rmsd-conformations.bin", "wb") as b:
+        b.write(bin_str)
 
     # Plot energy distributions
     info = ["energy", "rdkit-energy"]

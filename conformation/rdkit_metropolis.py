@@ -65,7 +65,7 @@ def rdkit_metropolis(args: Args) -> None:
     # Generate initial conformation and minimize it
     current_sample = copy.deepcopy(mol)
     AllChem.EmbedMolecule(current_sample, maxAttempts=args.max_attempts)
-    res = AllChem.MMFFOptimizeMoleculeConfs(current_sample)
+    res = AllChem.MMFFOptimizeMoleculeConfs(current_sample, numThreads=0)
     current_energy = res[0][1] * 1000.0 / avogadro
     conformation_molecules.append(current_sample)
     energies.append(res[0][1])
@@ -115,7 +115,7 @@ def rdkit_metropolis(args: Args) -> None:
 
         # Compute the energy of the proposed sample
         if args.minimize:
-            res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample)
+            res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample, numThreads=0)
         else:
             res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample, maxIters=0)
         proposed_energy = res[0][1] * 1000.0 / avogadro
@@ -149,17 +149,17 @@ def rdkit_metropolis(args: Args) -> None:
             num_accepted += 1
 
         if step % args.log_frequency == 0:
-            print(f'Steps Completed: {step}, Num Conformations: {len(conformation_molecules)}')
+            print(f'Steps completed: {step}, Num conformations: {len(conformation_molecules)}')
 
-    print(f'Number of Unique Conformations Identified: {len(conformation_molecules)}')
-    print(f'% Moves Accepted: {float(num_accepted)/float(args.num_steps)}')
+    print(f'Number of unique conformations identified: {len(conformation_molecules)}')
+    print(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)}')
 
     with open(args.save_path + "-info.txt", "w") as f:
-        f.write("Number of Rotatable Bonds: " + str(len(rotatable_bonds)))
+        f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
         f.write('\n')
-        f.write("Number of Unique Conformations Identified: " + str(len(conformation_molecules)))
+        f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
         f.write('\n')
-        f.write("% Moves Accepted: " + str(float(num_accepted)/float(args.num_steps)))
+        f.write("% Moves accepted: " + str(float(num_accepted)/float(args.num_steps)))
         f.write('\n')
 
     # Save unique conformers in molecule object
@@ -215,9 +215,9 @@ def rdkit_metropolis(args: Args) -> None:
             if unique:
                 post_conformation_molecules.append(post_mol)
 
-        print(f'Number of Unique Post Minimization Conformations Identified: {len(post_conformation_molecules)}')
+        print(f'Number of unique post minimization conformations identified: {len(post_conformation_molecules)}')
         with open(args.save_path + "-info.txt", "a") as f:
-            f.write("Number of Unique Post Minimization Conformations: " + str(len(post_conformation_molecules)))
+            f.write("Number of unique post minimization conformations: " + str(len(post_conformation_molecules)))
             f.write('\n')
 
         # Save unique conformers in molecule object
@@ -233,7 +233,7 @@ def rdkit_metropolis(args: Args) -> None:
         with open(args.save_path + "-post-minimization-rmsd-conformations.bin", "wb") as b:
             b.write(bin_str)
 
-    # Compute energy distributions
+    # Plot energy distributions
     fig, ax = plt.subplots()
     sns.distplot(energies, ax=ax)
     ax.set_xlabel("Energy (kcal/mol)")

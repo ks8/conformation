@@ -9,6 +9,7 @@ from rdkit.Chem import AllChem, rdMolAlign
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
+from tqdm import tqdm
 
 
 class Args(Tap):
@@ -50,11 +51,12 @@ def systematic_search(args: Args):
                 energies.append(float(line.split()[3]))
 
     # Compute minimized energies with RDKit
+    print(f'Minimizing conformations...')
     rdkit_energies = []
     post_conformation_molecules = []
     suppl = Chem.SDMolSupplier(args.save_path + ".sdf", removeHs=False)
-    for i, mol in enumerate(suppl):
-        res = AllChem.MMFFOptimizeMoleculeConfs(mol)
+    for i, mol in enumerate(tqdm(suppl)):
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
         rdkit_energies.append(res[0][1])
         post_mol = copy.deepcopy(mol)
         if i == 0:
@@ -75,8 +77,9 @@ def systematic_search(args: Args):
             if unique:
                 post_conformation_molecules.append(post_mol)
 
-    print(f'Number of Unique Post Minimization Conformations Identified: {len(post_conformation_molecules)}')
+    print(f'Number of unique post minimization conformations identified: {len(post_conformation_molecules)}')
     # Save unique conformers in molecule object
+    print(f'Saving conformations...')
     post_mol = post_conformation_molecules[0]
     for i in range(1, len(post_conformation_molecules)):
         c = post_conformation_molecules[i].GetConformer()
@@ -89,7 +92,8 @@ def systematic_search(args: Args):
         b.write(bin_str)
 
     # Plot energy distributions
-    info = ["energy", "rdkit-energy"]
+    print(f'Plotting energy distributions...')
+    info = ["energy", "post-minimization-rdkit-energy"]
     for i, elements in enumerate([energies, rdkit_energies]):
         fig, ax = plt.subplots()
         sns.distplot(elements, ax=ax)

@@ -2,6 +2,7 @@
 import copy
 import math
 import matplotlib.pyplot as plt
+import os
 
 import random
 from rdkit import Chem
@@ -13,6 +14,7 @@ from scipy.stats import multivariate_normal, truncnorm
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
+from tqdm import tqdm
 
 
 class Args(Tap):
@@ -20,20 +22,21 @@ class Args(Tap):
     System arguments.
     """
     smiles: str  # Molecular SMILES string
-    save_path: str  # Path to output file
     num_steps: int = 1000  # Number of MC steps to perform
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     rmsd_threshold: float = 0.65  # RMSD threshold for determining identical conformations
-    post_rmsd_threshold: float = 0.65  # RMSD threshold for post minimized conformations
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
-    post_rmsd: bool = False  # Whether or not to energy-minimize saved samples after MC
+    post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
+    post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
+    post_rmsd_threshold: float = 0.65  # RMSD threshold for post minimized conformations
     cartesian_coords: bool = False  # Whether or not to use internal coordinates or Cartesian coordinates
     clip_deviation: float = 2.0  # Distance of clip values for truncated normal on either side of the mean
     trunc_std: float = 1.0  # Standard deviation desired for truncated normal
     log_frequency: int = 1000  # Log frequency
+    save_dir: str  # Path to output file
 
 
 def rdkit_metropolis(args: Args) -> None:
@@ -42,6 +45,8 @@ def rdkit_metropolis(args: Args) -> None:
     :param args: System arguments.
     :return: None.
     """
+    os.makedirs(args.save_dir)
+
     # Define constants
     k_b = 3.297e-24  # Boltzmann constant in cal/K
     avogadro = 6.022e23
@@ -56,11 +61,11 @@ def rdkit_metropolis(args: Args) -> None:
     mol = Chem.AddHs(mol)
     num_atoms = mol.GetNumAtoms()
 
-    print(f'Starting Search: {args.smiles}')
+    print(f'Starting search: {args.smiles}')
 
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
-    print(f'Num Rotatable Bonds: {len(rotatable_bonds)}')
+    print(f'Num rotatable bonds: {len(rotatable_bonds)}')
 
     # Generate initial conformation and minimize it
     current_sample = copy.deepcopy(mol)
@@ -72,8 +77,9 @@ def rdkit_metropolis(args: Args) -> None:
     lowest_energy = res[0][1]
 
     # Run MC steps
+    print(f'Running MC steps...')
     num_accepted = 0
-    for step in range(args.num_steps):
+    for step in tqdm(range(args.num_steps)):
         # Initialize proposed sample
         proposed_sample = copy.deepcopy(current_sample)
         proposed_conf = proposed_sample.GetConformer()
@@ -152,9 +158,9 @@ def rdkit_metropolis(args: Args) -> None:
             print(f'Steps completed: {step}, Num conformations: {len(conformation_molecules)}')
 
     print(f'Number of unique conformations identified: {len(conformation_molecules)}')
-    print(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)}')
+    print(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
 
-    with open(args.save_path + "-info.txt", "w") as f:
+    with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
         f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
         f.write('\n')
         f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
@@ -163,6 +169,7 @@ def rdkit_metropolis(args: Args) -> None:
         f.write('\n')
 
     # Save unique conformers in molecule object
+    print(f'Saving conformations...')
     for i in range(len(conformation_molecules)):
         c = conformation_molecules[i].GetConformer()
         c.SetId(i)
@@ -170,10 +177,10 @@ def rdkit_metropolis(args: Args) -> None:
 
     # Save molecule to binary file
     bin_str = mol.ToBinary()
-    with open(args.save_path + "-conformations.bin", "wb") as b:
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
         b.write(bin_str)
 
-    if not args.minimize:
+    if args.post_minimize:
         print(f'Minimizing conformations...')
         res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
         post_minimize_energies = []
@@ -194,7 +201,7 @@ def rdkit_metropolis(args: Args) -> None:
         post_conformation_molecules.append(post_mol)
 
         # Loop through the remaining conformations to find unique ones
-        for i in range(1, mol.GetNumConformers()):
+        for i in tqdm(range(1, mol.GetNumConformers())):
             # Create a molecule with the current conformation we are checking for uniqueness
             post_mol = copy.deepcopy(mol)
             post_mol.RemoveAllConformers()
@@ -216,11 +223,12 @@ def rdkit_metropolis(args: Args) -> None:
                 post_conformation_molecules.append(post_mol)
 
         print(f'Number of unique post minimization conformations identified: {len(post_conformation_molecules)}')
-        with open(args.save_path + "-info.txt", "a") as f:
+        with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
             f.write("Number of unique post minimization conformations: " + str(len(post_conformation_molecules)))
             f.write('\n')
 
         # Save unique conformers in molecule object
+        print(f'Saving conformations...')
         post_mol = copy.deepcopy(mol)
         post_mol.RemoveAllConformers()
         for i in range(len(post_conformation_molecules)):
@@ -230,24 +238,24 @@ def rdkit_metropolis(args: Args) -> None:
 
         # Save molecule to binary file
         bin_str = post_mol.ToBinary()
-        with open(args.save_path + "-post-minimization-rmsd-conformations.bin", "wb") as b:
+        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
             b.write(bin_str)
 
-    # Plot energy distributions
+    # Plot energy histograms
     fig, ax = plt.subplots()
-    sns.distplot(energies, ax=ax)
+    sns.histplot(energies, ax=ax)
     ax.set_xlabel("Energy (kcal/mol)")
     ax.set_ylabel("Density")
-    ax.figure.savefig(args.save_path + "-energy-distribution.png")
+    ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
     plt.clf()
     plt.close()
 
-    if not args.minimize:
+    if args.post_minimize:
         fig, ax = plt.subplots()
         # noinspection PyUnboundLocalVariable
-        sns.distplot(post_minimize_energies, ax=ax)
+        sns.histplot(post_minimize_energies, ax=ax)
         ax.set_xlabel("Energy (kcal/mol)")
         ax.set_ylabel("Density")
-        ax.figure.savefig(args.save_path + "-post-minimized-energy-distribution.png")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
         plt.clf()
         plt.close()

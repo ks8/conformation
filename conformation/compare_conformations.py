@@ -2,6 +2,7 @@
 import copy
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 from typing import List
 
 from rdkit import Chem
@@ -10,6 +11,7 @@ import scipy.optimize
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
+from tqdm import tqdm
 
 
 class Args(Tap):
@@ -19,10 +21,10 @@ class Args(Tap):
     conf_path_1: str  # Path to binary file containing first set of conformations, the reference set
     conf_path_2: str  # Path to binary file containing second set of conformations, comparison set
     reference_rmsd_threshold: float = 0.5  # RMSD threshold applied to the reference set of conformations
-    comparison_rmsd_threshold: float = 0.5  # RMSD threshold applied when comparing the second set to the reference set
+    comparison_rmsd_threshold: List[float] = [0.5]  # RMSD threshold applied for comparing to reference
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values via RDKit
     histogram_bins: List = [40, 60, 0.5]  # Definition for histogram bins (lower, upper, bin width)
-    save_path: str  # Save path for output files
+    save_dir: str  # Save path for output files
 
 
 def compare_conformations(args: Args):
@@ -31,32 +33,39 @@ def compare_conformations(args: Args):
     :param args: System arguments.
     :return: None.
     """
+    os.makedirs(args.save_dir)
 
     # Load reference set and comparison set of conformations
+    print(f'Loading conformation sets...')
     # noinspection PyUnresolvedReferences
     mol_reference = Chem.Mol(open(args.conf_path_1, "rb").read())
+    print(f'Reference set has {mol_reference.GetNumConformers()} conformations')
     # noinspection PyUnresolvedReferences
     mol_comparison = Chem.Mol(open(args.conf_path_2, "rb").read())
+    print(f'Comparison set has {mol_comparison.GetNumConformers()} conformations')
+    exit()
 
     # Perform RMSD pruning and compute resulting energies for reference conformations
+    print(f'RMSD pruning reference conformations...')
     reference_conformation_molecules = []
     reference_energies = []
-    for i in range(mol_reference.GetNumConformers()):
+    for i in tqdm(range(mol_reference.GetNumConformers())):
         check_mol = copy.deepcopy(mol_reference)
         check_mol.RemoveAllConformers()
         c = mol_reference.GetConformers()[i]
         c.SetId(0)
         check_mol.AddConformer(c)
         unique = True
-        for j in range(len(reference_conformation_molecules)):
-            if args.rmsd_remove_Hs:
-                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(reference_conformation_molecules[j]),
-                                             Chem.RemoveHs(check_mol))
-            else:
-                rmsd = rdMolAlign.GetBestRMS(reference_conformation_molecules[j], check_mol)
-            if rmsd < args.reference_rmsd_threshold:
-                unique = False
-                break
+        if args.reference_rmsd_threshold > 0.0:
+            for j in range(len(reference_conformation_molecules)):
+                if args.rmsd_remove_Hs:
+                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(reference_conformation_molecules[j]),
+                                                 Chem.RemoveHs(check_mol))
+                else:
+                    rmsd = rdMolAlign.GetBestRMS(reference_conformation_molecules[j], check_mol)
+                if rmsd < args.reference_rmsd_threshold:
+                    unique = False
+                    break
 
         if unique:
             res = AllChem.MMFFOptimizeMoleculeConfs(check_mol, maxIters=0)
@@ -67,9 +76,9 @@ def compare_conformations(args: Args):
           f'{len(reference_conformation_molecules)}')
 
     # Compute RMSD cost matrix between reference conformations and comparison conformations
+    print(f'Computing RMSD cost matrix...')
     cost_matrix = np.zeros([len(reference_conformation_molecules), mol_comparison.GetNumConformers()])
-    recovered_reference_energies = []
-    for i in range(len(reference_conformation_molecules)):
+    for i in tqdm(range(len(reference_conformation_molecules))):
         for j in range(mol_comparison.GetNumConformers()):
             check_mol = copy.deepcopy(mol_comparison)
             check_mol.RemoveAllConformers()
@@ -84,26 +93,33 @@ def compare_conformations(args: Args):
             cost_matrix[i][j] = rmsd
     opt = scipy.optimize.linear_sum_assignment(cost_matrix)
 
-    # Compute the fraction of recovered reference conformations within the comparison RMSD threshold:
-    num = 0
-    for i in range(cost_matrix.shape[0]):
-        if cost_matrix[opt[0][i], opt[1][i]] < args.comparison_rmsd_threshold:
-            res = AllChem.MMFFOptimizeMoleculeConfs(reference_conformation_molecules[opt[0][i]], maxIters=0)
-            recovered_reference_energies.append(res[0][1])
-            num += 1
-    print(f'Fraction of reference conformations recovered within RMSD threshold of {args.comparison_rmsd_threshold}: '
-          f'{num / cost_matrix.shape[0]}')
+    # Compute the fraction of recovered reference conformations within the comparison RMSD threshold(s):
+    comparison_results = []
+    for comparison_threshold in args.comparison_rmsd_threshold:
+        recovered_reference_energies = []
+        num = 0
+        for i in range(opt[0].shape[0]):
+            if cost_matrix[opt[0][i], opt[1][i]] < comparison_threshold:
+                res = AllChem.MMFFOptimizeMoleculeConfs(reference_conformation_molecules[opt[0][i]], maxIters=0)
+                recovered_reference_energies.append(res[0][1])
+                num += 1
+        print(f'Fraction of reference conformations recovered within RMSD threshold {comparison_threshold}: '
+              f'{num / cost_matrix.shape[0]}')
+        comparison_results.append([comparison_threshold, num / cost_matrix.shape[0]])
 
-    # Plot histogram of reference energies simultaneously with histogram of recovered reference energies
-    reference_energies = np.array(reference_energies)
-    fig, ax = plt.subplots()
-    bins = np.arange(args.histogram_bins[0], args.histogram_bins[1], args.histogram_bins[2])
-    sns.distplot(reference_energies, ax=ax, kde=False, bins=bins)
-    if len(recovered_reference_energies) > 0:
-        recovered_reference_energies = np.array(recovered_reference_energies)
-        sns.distplot(recovered_reference_energies, ax=ax, kde=False, bins=bins)
-    ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Frequency")
-    ax.figure.savefig(args.save_path + "-matched-distribution.png")
-    plt.clf()
-    plt.close()
+        # Plot histogram of reference energies simultaneously with histogram of recovered reference energies
+        reference_energies = np.array(reference_energies)
+        fig, ax = plt.subplots()
+        bins = np.arange(args.histogram_bins[0], args.histogram_bins[1], args.histogram_bins[2])
+        sns.histplot(reference_energies, ax=ax, bins=bins)
+        if len(recovered_reference_energies) > 0:
+            recovered_reference_energies = np.array(recovered_reference_energies)
+            sns.histplot(recovered_reference_energies, ax=ax, bins=bins)
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "matched-distribution-RMSD-" +
+                                       str(comparison_threshold) + ".png"))
+        plt.clf()
+        plt.close()
+    comparison_results = np.array(comparison_results)
+    np.save(os.path.join(args.save_dir, "comparison-results"), comparison_results)

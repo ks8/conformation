@@ -10,7 +10,7 @@ from rdkit.Chem import AllChem, rdMolAlign, rdMolTransforms
 from rdkit.Chem.Lipinski import RotatableBondSmarts
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
-from scipy.stats import multivariate_normal, truncnorm
+from scipy.stats import truncnorm
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
@@ -25,14 +25,13 @@ class Args(Tap):
     num_steps: int = 1000  # Number of MC steps to perform
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
-    rmsd_threshold: float = 0.65  # RMSD threshold for determining identical conformations
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
     post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
     post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
     post_rmsd_threshold: float = 0.65  # RMSD threshold for post minimized conformations
-    cartesian_coords: bool = False  # Whether or not to use internal coordinates or Cartesian coordinates
+    post_rmsd_energy_diff: float = 3.0  # Energy difference above which two conformations are assumed to be different
     clip_deviation: float = 2.0  # Distance of clip values for truncated normal on either side of the mean
     trunc_std: float = 1.0  # Standard deviation desired for truncated normal
     log_frequency: int = 1000  # Log frequency
@@ -59,7 +58,6 @@ def rdkit_metropolis(args: Args) -> None:
     # noinspection PyUnresolvedReferences
     mol = Chem.MolFromSmiles(args.smiles)
     mol = Chem.AddHs(mol)
-    num_atoms = mol.GetNumAtoms()
 
     print(f'Starting search: {args.smiles}')
 
@@ -74,7 +72,6 @@ def rdkit_metropolis(args: Args) -> None:
     current_energy = res[0][1] * 1000.0 / avogadro
     conformation_molecules.append(current_sample)
     energies.append(res[0][1])
-    lowest_energy = res[0][1]
 
     # Run MC steps
     print(f'Running MC steps...')
@@ -84,44 +81,33 @@ def rdkit_metropolis(args: Args) -> None:
         proposed_sample = copy.deepcopy(current_sample)
         proposed_conf = proposed_sample.GetConformer()
 
-        if not args.cartesian_coords:
-            # Rotate each of these bonds (via dihedral angle) by a random amount
-            for i in range(len(rotatable_bonds)):
-                # Get atom indices for the ith bond
-                atom_a_idx = rotatable_bonds[i][0]
-                atom_b_idx = rotatable_bonds[i][1]
+        # Rotate each of these bonds (via dihedral angle) by a random amount
+        for i in range(len(rotatable_bonds)):
+            # Get atom indices for the ith bond
+            atom_a_idx = rotatable_bonds[i][0]
+            atom_b_idx = rotatable_bonds[i][1]
 
-                # Select a neighbor for each atom in order to form a dihedral
-                atom_a_neighbors = proposed_sample.GetAtomWithIdx(atom_a_idx).GetNeighbors()
-                atom_a_neighbor_index = [x.GetIdx() for x in atom_a_neighbors if x.GetIdx() != atom_b_idx][0]
-                atom_b_neighbors = proposed_sample.GetAtomWithIdx(atom_b_idx).GetNeighbors()
-                atom_b_neighbor_index = [x.GetIdx() for x in atom_b_neighbors if x.GetIdx() != atom_a_idx][0]
+            # Select a neighbor for each atom in order to form a dihedral
+            atom_a_neighbors = proposed_sample.GetAtomWithIdx(atom_a_idx).GetNeighbors()
+            atom_a_neighbor_index = [x.GetIdx() for x in atom_a_neighbors if x.GetIdx() != atom_b_idx][0]
+            atom_b_neighbors = proposed_sample.GetAtomWithIdx(atom_b_idx).GetNeighbors()
+            atom_b_neighbor_index = [x.GetIdx() for x in atom_b_neighbors if x.GetIdx() != atom_a_idx][0]
 
-                # Compute current dihedral angle
-                current_angle = rdMolTransforms.GetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
-                                                               atom_b_idx, atom_b_neighbor_index)
+            # Compute current dihedral angle
+            current_angle = rdMolTransforms.GetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
+                                                           atom_b_idx, atom_b_neighbor_index)
 
-                # Perturb the current angle
-                new_angle = truncnorm.rvs(-args.clip_deviation, args.clip_deviation, loc=current_angle,
-                                          scale=args.trunc_std)
+            # Perturb the current angle
+            new_angle = truncnorm.rvs(-args.clip_deviation, args.clip_deviation, loc=current_angle,
+                                      scale=args.trunc_std)
 
-                # Set the dihedral angle to random angle
-                rdMolTransforms.SetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
-                                               atom_b_idx, atom_b_neighbor_index, new_angle)
-
-        else:
-            # Move each atom by a random amount
-            pos = proposed_conf.GetPositions()
-            for i in range(num_atoms):
-                current_position = pos[i, :]
-                new_coords = multivariate_normal.rvs(mean=[current_position[0], current_position[1],
-                                                           current_position[2]], cov=[args.trunc_std]*3)
-                new_x, new_y, new_z = new_coords[0], new_coords[1], new_coords[2]
-                proposed_conf.SetAtomPosition(i, Point3D(new_x, new_y, new_z))
+            # Set the dihedral angle to random angle
+            rdMolTransforms.SetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
+                                           atom_b_idx, atom_b_neighbor_index, new_angle)
 
         # Compute the energy of the proposed sample
         if args.minimize:
-            res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample, numThreads=0)
+            res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample)
         else:
             res = AllChem.MMFFOptimizeMoleculeConfs(proposed_sample, maxIters=0)
         proposed_energy = res[0][1] * 1000.0 / avogadro
@@ -134,30 +120,16 @@ def rdkit_metropolis(args: Args) -> None:
             current_sample = proposed_sample
             current_energy = proposed_energy
 
-            # Save the proposed sample to the list of conformations if it is unique
-            unique = True
-            if args.rmsd_threshold > 0.0:
-                for i in range(len(conformation_molecules)):
-                    if args.rmsd_remove_Hs:
-                        rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(conformation_molecules[i]),
-                                                     Chem.RemoveHs(proposed_sample))
-                    else:
-                        rmsd = rdMolAlign.GetBestRMS(conformation_molecules[i], proposed_sample)
-                    if rmsd < args.rmsd_threshold or res[0][1] - lowest_energy > args.e_threshold:
-                        unique = False
-                        break
-            if unique:
-                conformation_molecules.append(proposed_sample)
-                energies.append(res[0][1])
-                if res[0][1] < lowest_energy:
-                    lowest_energy = res[0][1]
+            # Save the proposed sample to the list of conformations
+            conformation_molecules.append(proposed_sample)
+            energies.append(res[0][1])
 
             num_accepted += 1
 
         if step % args.log_frequency == 0:
             print(f'Steps completed: {step}, Num conformations: {len(conformation_molecules)}')
 
-    print(f'Number of unique conformations identified: {len(conformation_molecules)}')
+    print(f'Number of conformations identified: {len(conformation_molecules)}')
     print(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
 
     with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
@@ -165,10 +137,10 @@ def rdkit_metropolis(args: Args) -> None:
         f.write('\n')
         f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
         f.write('\n')
-        f.write("% Moves accepted: " + str(float(num_accepted)/float(args.num_steps)))
+        f.write("% Moves accepted: " + str(float(num_accepted)/float(args.num_steps)*100.0))
         f.write('\n')
 
-    # Save unique conformers in molecule object
+    # Save unique conformations in molecule object
     print(f'Saving conformations...')
     for i in range(len(conformation_molecules)):
         c = conformation_molecules[i].GetConformer()
@@ -187,60 +159,64 @@ def rdkit_metropolis(args: Args) -> None:
         for i in range(len(res)):
             post_minimize_energies.append(res[i][1])
 
+        # Save molecule to binary file
+        bin_str = mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
+            b.write(bin_str)
+
     if args.post_rmsd:
         print(f'RMSD pruning...')
-        # List of unique post-minimization molecules
-        post_conformation_molecules = []
+        # List of conformers to remove
+        unique_conformer_indices = []
 
-        # Add an initial molecule to the list
-        post_mol = copy.deepcopy(mol)
-        post_mol.RemoveAllConformers()
-        c = mol.GetConformers()[0]
-        c.SetId(0)
-        post_mol.AddConformer(c)
-        post_conformation_molecules.append(post_mol)
+        if args.rmsd_remove_Hs:
+            # noinspection PyPep8Naming
+            mol_no_Hs = Chem.RemoveHs(mol)
 
-        # Loop through the remaining conformations to find unique ones
-        for i in tqdm(range(1, mol.GetNumConformers())):
-            # Create a molecule with the current conformation we are checking for uniqueness
-            post_mol = copy.deepcopy(mol)
-            post_mol.RemoveAllConformers()
-            c = mol.GetConformers()[i]
-            c.SetId(0)
-            post_mol.AddConformer(c)
+        # Loop through conformations to find unique ones
+        print(f'Begin pruning...')
+        for i in tqdm(range(mol.GetNumConformers())):
             unique = True
-            for j in range(len(post_conformation_molecules)):
-                # Check for uniqueness
-                if args.rmsd_remove_Hs:
-                    rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(post_conformation_molecules[j]), Chem.RemoveHs(post_mol))
+            for j in unique_conformer_indices:
+                if args.post_minimize:
+                    # noinspection PyUnboundLocalVariable
+                    energy_diff = abs(post_minimize_energies[i] - post_minimize_energies[j])
                 else:
-                    rmsd = rdMolAlign.GetBestRMS(post_conformation_molecules[j], post_mol)
-                if rmsd < args.post_rmsd_threshold:
-                    unique = False
-                    break
-
+                    energy_diff = abs(energies[i] - energies[j])
+                if energy_diff < args.post_rmsd_energy_diff:
+                    if args.rmsd_remove_Hs:
+                        # noinspection PyUnboundLocalVariable
+                        rmsd = rdMolAlign.AlignMol(mol_no_Hs, mol_no_Hs, j, i)
+                    else:
+                        rmsd = rdMolAlign.AlignMol(mol, mol, j, i)
+                    if rmsd < args.post_rmsd_threshold:
+                        unique = False
+                        break
             if unique:
-                post_conformation_molecules.append(post_mol)
+                unique_conformer_indices.append(i)
 
-        print(f'Number of unique post minimization conformations identified: {len(post_conformation_molecules)}')
+        print(f'Number of unique post minimization conformations identified: {len(unique_conformer_indices)}')
         with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
-            f.write("Number of unique post minimization conformations: " + str(len(post_conformation_molecules)))
+            f.write("Number of unique post rmsd conformations: " + str(len(unique_conformer_indices)))
             f.write('\n')
 
         # Save unique conformers in molecule object
         print(f'Saving conformations...')
-        post_mol = copy.deepcopy(mol)
-        post_mol.RemoveAllConformers()
-        for i in range(len(post_conformation_molecules)):
-            c = post_conformation_molecules[i].GetConformer()
-            c.SetId(i)
-            post_mol.AddConformer(c)
+        post_rmsd_mol = copy.deepcopy(mol)
+        post_rmsd_mol.RemoveAllConformers()
+        count = 0
+        for i in unique_conformer_indices:
+            c = mol.GetConformer(i)
+            c.SetId(count)
+            post_rmsd_mol.AddConformer(c)
+            count += 1
 
         # Save molecule to binary file
-        bin_str = post_mol.ToBinary()
-        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
+        bin_str = post_rmsd_mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-rmsd-conformations.bin"), "wb") as b:
             b.write(bin_str)
 
+    print(f'Plotting energy distributions...')
     # Plot energy histograms
     fig, ax = plt.subplots()
     sns.histplot(energies, ax=ax)
@@ -251,6 +227,7 @@ def rdkit_metropolis(args: Args) -> None:
     plt.close()
 
     if args.post_minimize:
+        # noinspection PyUnboundLocalVariable
         fig, ax = plt.subplots()
         # noinspection PyUnboundLocalVariable
         sns.histplot(post_minimize_energies, ax=ax)

@@ -2,6 +2,7 @@
 import copy
 import math
 import matplotlib.pyplot as plt
+import numpy as np 
 import os
 
 import random
@@ -216,6 +217,12 @@ def rdkit_metropolis(args: Args) -> None:
         with open(os.path.join(args.save_dir, "post-rmsd-conformations.bin"), "wb") as b:
             b.write(bin_str)
 
+        # Save pruned energies
+        res = AllChem.MMFFOptimizeMoleculeConfs(post_rmsd_mol, maxIters=0)
+        post_rmsd_energies = []
+        for i in range(len(res)):
+            post_rmsd_energies.append(res[i][1])
+
     print(f'Plotting energy distributions...')
     # Plot energy histograms
     fig, ax = plt.subplots()
@@ -232,7 +239,19 @@ def rdkit_metropolis(args: Args) -> None:
         # noinspection PyUnboundLocalVariable
         sns.histplot(post_minimize_energies, ax=ax)
         ax.set_xlabel("Energy (kcal/mol)")
-        ax.set_ylabel("Density")
+        ax.set_ylabel("Frequency")
         ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
+        plt.clf()
+        plt.close()
+
+    if args.post_rmsd:
+        # noinspection PyUnboundLocalVariable
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.histplot(post_rmsd_energies, ax=ax, bins=np.arange(min(post_rmsd_energies) - 1., max(post_rmsd_energies) +
+                                                               1., 0.1))
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
         plt.clf()
         plt.close()

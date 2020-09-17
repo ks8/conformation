@@ -2,6 +2,7 @@
 https://open-babel.readthedocs.io/en/latest/3DStructureGen/multipleconformers.html. """
 import copy
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 
 from rdkit import Chem
@@ -120,6 +121,12 @@ def systematic_search(args: Args):
         c.SetId(i)
         post_mol.AddConformer(c)
 
+    # Save pruned energies
+    res = AllChem.MMFFOptimizeMoleculeConfs(post_mol, maxIters=0)
+    post_rmsd_energies = []
+    for i in range(len(res)):
+        post_rmsd_energies.append(res[i][1])
+
     # Save molecule to binary file
     bin_str = post_mol.ToBinary()
     with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
@@ -127,10 +134,10 @@ def systematic_search(args: Args):
 
     # Plot energy histograms
     print(f'Plotting energy histograms...')
-    info = ["obabel-energy", "post-minimization-rdkit-energy"]
-    for i, elements in enumerate([energies, rdkit_energies]):
+    info = ["obabel-energy", "post-minimization-rdkit-energy", "post-rmsd-rdkit-energy"]
+    for i, elements in enumerate([energies, rdkit_energies, post_rmsd_energies]):
         fig, ax = plt.subplots()
-        sns.histplot(elements, ax=ax)
+        sns.histplot(elements, ax=ax, bins=np.arange(min(elements) - 1., max(elements) + 1., 0.1))
         ax.set_xlabel("Energy (kcal/mol)")
         ax.set_ylabel("Frequency")
         ax.figure.savefig(os.path.join(args.save_dir, info[i] + "-histogram.png"))

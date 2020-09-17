@@ -24,7 +24,6 @@ class Args(Tap):
     reference_energy_fraction: float = None  # Bottom fraction of conformers in terms of energy to compare to
     comparison_rmsd_threshold: List[float] = [0.5]  # RMSD threshold applied for comparing to reference
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values via RDKit
-    histogram_bins: List = [40, 60, 0.5]  # Definition for histogram bins (lower, upper, bin width)
     save_dir: str  # Save path for output files
 
 
@@ -54,6 +53,13 @@ def compare_conformations(args: Args):
     for i in range(len(res)):
         reference_energies.append(res[i][1])
 
+    # Compute energies for comparison conformations
+    print(f'Computing comparison conformation energies...')
+    comparison_energies = []
+    res = AllChem.MMFFOptimizeMoleculeConfs(mol_comparison, maxIters=0, numThreads=0)
+    for i in range(len(res)):
+        comparison_energies.append(res[i][1])
+
     # Sort the energies and take the relevant fraction
     if args.reference_energy_fraction is not None:
         sorted_indices = sorted(range(len(reference_energies)), key=lambda k: reference_energies[k])
@@ -67,6 +73,13 @@ def compare_conformations(args: Args):
         mol_reference = mol_reference_new
         mol_reference_no_hs = Chem.RemoveHs(mol_reference)
 
+        # Compute energies for reference conformations
+        print(f'Recomputing reference conformation energies...')
+        reference_energies = []
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol_reference, maxIters=0, numThreads=0)
+        for i in range(len(res)):
+            reference_energies.append(res[i][1])
+
     # Compute RMSD cost matrix between reference conformations and comparison conformations
     print(f'Computing RMSD cost matrix...')
     cost_matrix = np.zeros([mol_reference.GetNumConformers(), mol_comparison.GetNumConformers()])
@@ -79,6 +92,8 @@ def compare_conformations(args: Args):
             cost_matrix[i][j] = rmsd
     opt = scipy.optimize.linear_sum_assignment(cost_matrix)
 
+    print(f'Confab minimum: {min(reference_energies)}')
+    print(f'MH minimum: {min(comparison_energies)}')
     # Compute the fraction of recovered reference conformations within the comparison RMSD threshold(s):
     comparison_results = []
     for comparison_threshold in args.comparison_rmsd_threshold:
@@ -95,11 +110,11 @@ def compare_conformations(args: Args):
         # Plot histogram of reference energies simultaneously with histogram of recovered reference energies
         reference_energies = np.array(reference_energies)
         fig, ax = plt.subplots()
-        bins = np.arange(args.histogram_bins[0], args.histogram_bins[1], args.histogram_bins[2])
-        sns.histplot(reference_energies, ax=ax, bins=bins)
+        bins = np.arange(min(reference_energies) - 1., max(reference_energies) + 1., 0.1)
+        sns.histplot(reference_energies, ax=ax, bins=bins, color='b')
         if len(recovered_reference_energies) > 0:
             recovered_reference_energies = np.array(recovered_reference_energies)
-            sns.histplot(recovered_reference_energies, ax=ax, bins=bins)
+            sns.histplot(recovered_reference_energies, ax=ax, bins=bins, color='r')
         ax.set_xlabel("Energy (kcal/mol)")
         ax.set_ylabel("Frequency")
         ax.figure.savefig(os.path.join(args.save_dir, "matched-distribution-RMSD-" +

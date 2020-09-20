@@ -4,6 +4,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np 
 import os
+from typing import List, Tuple
 
 import random
 from rdkit import Chem
@@ -28,6 +29,8 @@ class Args(Tap):
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
+    num_bonds_to_rotate: int = None  # Number of bonds to rotate in proposal distribution
+    random_bonds: bool = False  # Whether or not to select a random number of bonds to rotate in proposal distribution
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
     post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
     post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
@@ -35,8 +38,62 @@ class Args(Tap):
     post_rmsd_energy_diff: float = 3.0  # Energy difference above which two conformations are assumed to be different
     clip_deviation: float = 2.0  # Distance of clip values for truncated normal on either side of the mean
     trunc_std: float = 1.0  # Standard deviation desired for truncated normal
+    random_std: bool = False  # Whether or not to select a random trunc_std value at each MC step
+    random_std_range: List = [0.1, 1.5]  # Range for random trunc_std value
+    subsample_frequency: int = 1  # Frequency at which configurations are saved from MH steps
     log_frequency: int = 1000  # Log frequency
     save_dir: str  # Path to output file
+
+
+# noinspection PyUnresolvedReferences
+def rotate_bonds(current_sample: Chem.rdchem.Mol, rotatable_bonds: Tuple, args: Args) -> Chem.rdchem.Mol:
+    """
+    Proposal distribution that rotates a specified number of rotatable bonds by a random amount.
+    :param current_sample: Current geometry.
+    :param rotatable_bonds: Number of rotatable bonds.
+    :param args: System arguments.
+    :return:
+    """
+    # Initialize proposed sample
+    proposed_sample = copy.deepcopy(current_sample)
+    proposed_conf = proposed_sample.GetConformer()
+
+    # Rotate bond(s) (via dihedral angle) by a random amount
+    rotatable_bonds = list(rotatable_bonds)
+    if args.random_bonds:
+        bonds_to_rotate = random.sample(rotatable_bonds, random.randint(1, len(rotatable_bonds)))
+    elif args.num_bonds_to_rotate is not None:
+        bonds_to_rotate = random.sample(rotatable_bonds, args.num_bonds_to_rotate)
+    else:
+        bonds_to_rotate = rotatable_bonds
+    for bond in bonds_to_rotate:
+        # Get atom indices for the ith bond
+        atom_a_idx = bond[0]
+        atom_b_idx = bond[1]
+
+        # Select a neighbor for each atom in order to form a dihedral
+        atom_a_neighbors = proposed_sample.GetAtomWithIdx(atom_a_idx).GetNeighbors()
+        atom_a_neighbor_index = [x.GetIdx() for x in atom_a_neighbors if x.GetIdx() != atom_b_idx][0]
+        atom_b_neighbors = proposed_sample.GetAtomWithIdx(atom_b_idx).GetNeighbors()
+        atom_b_neighbor_index = [x.GetIdx() for x in atom_b_neighbors if x.GetIdx() != atom_a_idx][0]
+
+        # Compute current dihedral angle
+        current_angle = rdMolTransforms.GetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
+                                                       atom_b_idx, atom_b_neighbor_index)
+
+        # Perturb the current angle
+        if args.random_std:
+            trunc_std = random.uniform(args.random_std_range[0], args.random_std_range[1])
+        else:
+            trunc_std = args.trunc_std
+        new_angle = truncnorm.rvs(-args.clip_deviation, args.clip_deviation, loc=current_angle,
+                                  scale=trunc_std)
+
+        # Set the dihedral angle to random angle
+        rdMolTransforms.SetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
+                                       atom_b_idx, atom_b_neighbor_index, new_angle)
+
+    return proposed_sample
 
 
 def rdkit_metropolis(args: Args) -> None:
@@ -54,6 +111,8 @@ def rdkit_metropolis(args: Args) -> None:
     # Molecule conformation list
     conformation_molecules = []
     energies = []
+    all_conformation_molecules = []
+    all_energies = []
 
     # Load molecule
     # noinspection PyUnresolvedReferences
@@ -69,42 +128,18 @@ def rdkit_metropolis(args: Args) -> None:
     # Generate initial conformation and minimize it
     current_sample = copy.deepcopy(mol)
     AllChem.EmbedMolecule(current_sample, maxAttempts=args.max_attempts)
-    res = AllChem.MMFFOptimizeMoleculeConfs(current_sample, numThreads=0)
+    res = AllChem.MMFFOptimizeMoleculeConfs(current_sample)
     current_energy = res[0][1] * 1000.0 / avogadro
     conformation_molecules.append(current_sample)
     energies.append(res[0][1])
+    all_conformation_molecules.append(current_sample)
+    all_energies.append(res[0][1])
 
     # Run MC steps
     print(f'Running MC steps...')
     num_accepted = 0
     for step in tqdm(range(args.num_steps)):
-        # Initialize proposed sample
-        proposed_sample = copy.deepcopy(current_sample)
-        proposed_conf = proposed_sample.GetConformer()
-
-        # Rotate each of these bonds (via dihedral angle) by a random amount
-        for i in range(len(rotatable_bonds)):
-            # Get atom indices for the ith bond
-            atom_a_idx = rotatable_bonds[i][0]
-            atom_b_idx = rotatable_bonds[i][1]
-
-            # Select a neighbor for each atom in order to form a dihedral
-            atom_a_neighbors = proposed_sample.GetAtomWithIdx(atom_a_idx).GetNeighbors()
-            atom_a_neighbor_index = [x.GetIdx() for x in atom_a_neighbors if x.GetIdx() != atom_b_idx][0]
-            atom_b_neighbors = proposed_sample.GetAtomWithIdx(atom_b_idx).GetNeighbors()
-            atom_b_neighbor_index = [x.GetIdx() for x in atom_b_neighbors if x.GetIdx() != atom_a_idx][0]
-
-            # Compute current dihedral angle
-            current_angle = rdMolTransforms.GetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
-                                                           atom_b_idx, atom_b_neighbor_index)
-
-            # Perturb the current angle
-            new_angle = truncnorm.rvs(-args.clip_deviation, args.clip_deviation, loc=current_angle,
-                                      scale=args.trunc_std)
-
-            # Set the dihedral angle to random angle
-            rdMolTransforms.SetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
-                                           atom_b_idx, atom_b_neighbor_index, new_angle)
+        proposed_sample = rotate_bonds(current_sample, rotatable_bonds, args)
 
         # Compute the energy of the proposed sample
         if args.minimize:
@@ -126,6 +161,10 @@ def rdkit_metropolis(args: Args) -> None:
             energies.append(res[0][1])
 
             num_accepted += 1
+
+        if step % args.subsample_frequency == 0:
+            all_conformation_molecules.append(current_sample)
+            all_energies.append(res[0][1])
 
         if step % args.log_frequency == 0:
             print(f'Steps completed: {step}, Num conformations: {len(conformation_molecules)}')
@@ -150,6 +189,19 @@ def rdkit_metropolis(args: Args) -> None:
 
     # Save molecule to binary file
     bin_str = mol.ToBinary()
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
+        b.write(bin_str)
+
+    # Save all conformations in molecule object
+    all_mol = Chem.MolFromSmiles(args.smiles)
+    all_mol = Chem.AddHs(all_mol)
+    for i in range(len(all_conformation_molecules)):
+        c = all_conformation_molecules[i].GetConformer()
+        c.SetId(i)
+        all_mol.AddConformer(c)
+
+    # Save molecule to binary file
+    bin_str = all_mol.ToBinary()
     with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
         b.write(bin_str)
 

@@ -9,7 +9,7 @@ from scipy.stats import multivariate_normal
 from typing import Tuple
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdchem, rdForceFieldHelpers, rdMolAlign
+from rdkit.Chem import AllChem, rdchem, rdForceFieldHelpers, rdMolAlign, rdmolfiles
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
 # noinspection PyPackageRequirements
@@ -24,9 +24,10 @@ class Args(Tap):
     smiles: str  # Molecular SMILES string
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
-    epsilon: float = 0.1  # Leapfrog step size
+    epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of HMC steps
+    factor: float = 1
     save_dir: str  # Path to directory containing output files
 
 
@@ -127,6 +128,11 @@ def rdkit_hmc(args: Args) -> None:
     # plt.clf()
     os.makedirs(args.save_dir)
 
+    # Define constants
+    k_b = 3.297e-24  # Boltzmann constant in cal/K
+    avogadro = 6.022e23
+    args.epsilon *= 1e-15
+
     # Load molecule
     # noinspection PyUnresolvedReferences
     mol = Chem.MolFromSmiles(args.smiles)
@@ -138,10 +144,15 @@ def rdkit_hmc(args: Args) -> None:
     # Here, we consider the variables of interest, q, to effectively be the atomic coordinates
     current_q = copy.deepcopy(mol)
     AllChem.EmbedMolecule(current_q, maxAttempts=args.max_attempts)
-    AllChem.MMFFOptimizeMoleculeConfs(current_q)
+    # AllChem.MMFFOptimizeMoleculeConfs(current_q)
     num_atoms = current_q.GetNumAtoms()
+    mass = np.array([mol.GetAtomWithIdx(i).GetMass()/(1000.*avogadro) for i in range(num_atoms)])
 
     conformation_molecules = [current_q]
+
+    # Testing
+    test = copy.deepcopy(mol)
+    AllChem.EmbedMultipleConfs(test, numConfs=args.L*args.num_steps)
 
     print(f'Running HMC steps...')
     num_accepted = 0
@@ -149,23 +160,22 @@ def rdkit_hmc(args: Args) -> None:
         # Set the current position variables
         q = copy.deepcopy(current_q)
 
-        # Generate random momentum values
-        p = np.array([np.random.multivariate_normal(np.zeros(3), np.identity(3)) for _ in range(num_atoms)])
+        # Generate random momentum values by sampling from the Maxwell-Boltzmann distribution
+        p = np.array([np.random.multivariate_normal(np.zeros(3), np.diag([(k_b*args.temp*4.184)/mass[i]]*3))*mass[i]
+                      for i in range(num_atoms)])
         current_p = p
 
         # Make a half-step for momentum at the beginning
         _, grad_u = calc_energy_grad(q)
-        p = p - args.epsilon * grad_u/2
+        p = p - args.epsilon * grad_u * args.factor/2
 
         # Alternate full steps for position and momentum
         for i in range(args.L):
             # Make a full step for the position
             c = q.GetConformer()
             pos = c.GetPositions()
-            pos_init = pos
-            pos = pos + args.epsilon * p
-            # print("Change in pos: ")
-            # print(pos - pos_init)
+            v = np.array([p[i] / mass[i] for i in range(num_atoms)])
+            pos = pos + args.epsilon * v
 
             # Save updated atomic coordinates to the conformation object
             for j in range(len(pos)):
@@ -174,34 +184,38 @@ def rdkit_hmc(args: Args) -> None:
             # Make a full step for the momentum, except at the end of the trajectory
             if i != args.L - 1:
                 energy, grad_u = calc_energy_grad(q)
-                p_init = p
-                p = p - args.epsilon * grad_u
-                # print("Grad: ")
-                # print(grad_u)
-                # print("Change in p: ")
-                # print(p - p_init)
+                p = p - args.epsilon * grad_u * args.factor
                 print(energy)
-                print(grad_u)
+            else:
+                # Testing
+                c = test.GetConformers()[i]
+                for j in range(len(pos)):
+                    c.SetAtomPosition(j, Point3D(pos[j][0], pos[j][1], pos[j][2]))
 
         # Make a half step for momentum at the end
         _, grad_u = calc_energy_grad(q)
-        p = p - args.epsilon * grad_u/2
+        p = p - args.epsilon * grad_u * args.factor/2
 
         # Negate the momentum at the end of the trajectory to make the proposal symmetric
-        p = -p
+        p *= -1.0
 
         # Evaluate potential and kinetic energies at start and end of the trajectory
         current_u, _ = calc_energy_grad(current_q)
-        current_k = np.sum(np.sum(np.square(current_p), axis=1)/2.)
+        current_u *= (1000.0 * 4.184 / avogadro)
+        current_k = sum(np.array([np.dot(current_p[i], current_p[i]) / (2. * mass[i]) for i in range(num_atoms)]))
         proposed_u, _ = calc_energy_grad(q)
-        proposed_k = np.sum(np.sum(np.square(p), axis=1)/2.)
+        print("proposed: " + str(proposed_u))
+        proposed_u *= (1000.0 * 4.184 / avogadro)
+        proposed_k = sum(np.array([np.dot(p[i], p[i]) / (2. * mass[i]) for i in range(num_atoms)]))
 
-        prob_ratio = math.exp(current_u - proposed_u + current_k - proposed_k)
+        prob_ratio = math.exp((current_u - proposed_u + current_k - proposed_k) / (k_b*args.temp*4.184))
         mu = random.uniform(0, 1)
         if mu <= prob_ratio:
             current_q = q
             conformation_molecules.append(current_q)
             num_accepted += 1
+
+    print(rdmolfiles.MolToPDBBlock(test), file=open("traj.pdb", "w+"))
 
     print(f'Number of conformations identified: {len(conformation_molecules)}')
     print(f'% Moves accepted: {float(num_accepted) / float(args.num_steps) * 100.0}')

@@ -1,15 +1,18 @@
 """ Hamiltonian Monte Carlo conformational search using RDKit. """
 import copy
 import math
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
 from typing import Tuple
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdchem, rdForceFieldHelpers, rdMolAlign, rdmolfiles
+from rdkit.Chem import AllChem, rdchem, rdForceFieldHelpers, rdMolAlign
+from rdkit.Chem.Lipinski import RotatableBondSmarts
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
+import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
 from tqdm import tqdm
@@ -25,6 +28,12 @@ class Args(Tap):
     epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of HMC steps
+    post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
+    post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
+    rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
+    post_rmsd_energy_diff: float = 2.0  # Energy difference above which two conformations are assumed to be different
+    post_rmsd_threshold: float = 0.05  # RMSD threshold for post minimized conformations
+    subsample_frequency: int = 1  # Frequency at which configurations are saved from MH steps
     save_dir: str  # Path to directory containing output files
 
 
@@ -87,17 +96,15 @@ def rdkit_hmc(args: Args) -> None:
     mass = np.array([mol.GetAtomWithIdx(i).GetMass()/(1000.*avogadro) for i in range(num_atoms)])
 
     # Add the first conformation to the list
+    energy, _ = calc_energy_grad(current_q)
     conformation_molecules = [current_q]
-
-    # ###### Testing ###############
-    # test = copy.deepcopy(mol)
-    # AllChem.EmbedMultipleConfs(test, numConfs=int(args.L/100))
-    # ######################################
+    energies = [energy]
+    all_conformation_molecules = [current_q]
+    all_energies = [energy]
 
     print(f'Running HMC steps...')
     num_accepted = 0
-    count = 0
-    for _ in tqdm(range(args.num_steps)):
+    for step in tqdm(range(args.num_steps)):
         # Set the current position variables
         q = copy.deepcopy(current_q)
 
@@ -115,7 +122,7 @@ def rdkit_hmc(args: Args) -> None:
         # Make a half-step for momentum at the beginning
         # Note: the gradient is in kcal/mol/Angstrom, so we convert it to Newtons: 1 kg * m / s^2
         _, grad_u = calc_energy_grad(q)
-        grad_u *= (1000.0 * 4.184 * 10e10 / avogadro)
+        grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
         p = p - args.epsilon * grad_u/2.
 
         # Alternate full steps for position and momentum
@@ -124,33 +131,23 @@ def rdkit_hmc(args: Args) -> None:
             c = q.GetConformer()
             pos = c.GetPositions()
             v = np.array([p[i] / mass[i] for i in range(num_atoms)])
-            v *= 10e10  # Convert to Angstroms / s
+            v *= 1e10  # Convert to Angstroms / s
             pos = pos + args.epsilon * v
 
             # Save updated atomic coordinates to the conformation object
             for j in range(len(pos)):
                 c.SetAtomPosition(j, Point3D(pos[j][0], pos[j][1], pos[j][2]))
 
-            # if i % 100 == 0:
-            #     # Testing ###################
-            #     c = test.GetConformers()[count]
-            #     for j in range(len(pos)):
-            #         c.SetAtomPosition(j, Point3D(pos[j][0], pos[j][1], pos[j][2]))
-            #     count += 1
-            #     #############################
-
             # Make a full step for the momentum, except at the end of the trajectory
             if i != args.L - 1:
                 energy, grad_u = calc_energy_grad(q)
-                grad_u *= (1000.0 * 4.184 * 10e10 / avogadro)
+                grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
                 p = p - args.epsilon * grad_u
 
         # Make a half step for momentum at the end
         _, grad_u = calc_energy_grad(q)
-        grad_u *= (1000.0 * 4.184 * 10e10 / avogadro)
+        grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
         p = p - args.epsilon * grad_u/2.
-
-        # print(rdmolfiles.MolToPDBBlock(test), file=open("traj.pdb", "w+"))
 
         # Negate the momentum at the end of the trajectory to make the proposal symmetric
         p *= -1.0
@@ -166,15 +163,36 @@ def rdkit_hmc(args: Args) -> None:
         proposed_k = sum([((np.linalg.norm(p[i]))**2 / (2. * mass[i])) for i in
                           range(num_atoms)])
 
+        # Current energy in kcal/mol
+        current_energy = current_u / (1000.0 * 4.184 / avogadro)
+
         prob_ratio = math.exp((current_u - proposed_u + current_k - proposed_k) / (k_b*args.temp*4.184))
         mu = random.uniform(0, 1)
         if mu <= prob_ratio:
             current_q = q
+            current_energy = proposed_u / (1000.0 * 4.184 / avogadro)
             conformation_molecules.append(current_q)
+            energies.append(current_energy)
             num_accepted += 1
+
+        if step % args.subsample_frequency == 0:
+            all_conformation_molecules.append(current_q)
+            all_energies.append(current_energy)
 
     print(f'Number of conformations identified: {len(conformation_molecules)}')
     print(f'% Moves accepted: {float(num_accepted) / float(args.num_steps) * 100.0}')
+
+    # Discover the rotatable bonds
+    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
+    print(f'Num rotatable bonds: {len(rotatable_bonds)}')
+
+    with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
+        f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
+        f.write('\n')
+        f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
+        f.write('\n')
+        f.write("% Moves accepted: " + str(float(num_accepted)/float(args.num_steps)*100.0))
+        f.write('\n')
 
     # Save unique conformations in molecule object
     print(f'Saving conformations...')
@@ -183,32 +201,120 @@ def rdkit_hmc(args: Args) -> None:
         c.SetId(i)
         mol.AddConformer(c)
 
-    print(f'Minimizing conformations...')
-    res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
-    post_minimize_energies = []
-    for i in range(len(res)):
-        post_minimize_energies.append(res[i][1])
+    # Save molecule to binary file
+    bin_str = mol.ToBinary()
+    with open(os.path.join(args.save_dir, "unique-conformations.bin"), "wb") as b:
+        b.write(bin_str)
 
-    print(f'RMSD pruning...')
-    # List of conformers to remove
-    unique_conformer_indices = []
-    # noinspection PyPep8Naming
-    mol_no_Hs = Chem.RemoveHs(mol)
+    # Save all conformations in molecule object
+    all_mol = Chem.MolFromSmiles(args.smiles)
+    all_mol = Chem.AddHs(all_mol)
+    for i in range(len(all_conformation_molecules)):
+        c = all_conformation_molecules[i].GetConformer()
+        c.SetId(i)
+        all_mol.AddConformer(c)
 
-    # Loop through conformations to find unique ones
-    print(f'Begin pruning...')
-    for i in tqdm(range(mol.GetNumConformers())):
-        unique = True
-        for j in unique_conformer_indices:
-            # noinspection PyUnboundLocalVariable
-            energy_diff = abs(post_minimize_energies[i] - post_minimize_energies[j])
-            if energy_diff < 2.0:
+    # Save molecule to binary file
+    bin_str = all_mol.ToBinary()
+    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
+        b.write(bin_str)
+
+    if args.post_minimize:
+        print(f'Minimizing conformations...')
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
+        post_minimize_energies = []
+        for i in range(len(res)):
+            post_minimize_energies.append(res[i][1])
+
+        # Save molecule to binary file
+        bin_str = mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
+            b.write(bin_str)
+
+    if args.post_rmsd:
+        print(f'RMSD pruning...')
+        # List of conformers to remove
+        unique_conformer_indices = []
+
+        if args.rmsd_remove_Hs:
+            # noinspection PyPep8Naming
+            mol_no_Hs = Chem.RemoveHs(mol)
+
+        # Loop through conformations to find unique ones
+        print(f'Begin pruning...')
+        for i in tqdm(range(mol.GetNumConformers())):
+            unique = True
+            for j in unique_conformer_indices:
                 # noinspection PyUnboundLocalVariable
-                rmsd = rdMolAlign.AlignMol(mol_no_Hs, mol_no_Hs, j, i)
-                if rmsd < 0.05:
-                    unique = False
-                    break
-        if unique:
-            unique_conformer_indices.append(i)
+                energy_diff = abs(post_minimize_energies[i] - post_minimize_energies[j])
+                if energy_diff < args.post_rmsd_energy_diff:
+                    if args.rmsd_remove_Hs:
+                        # noinspection PyUnboundLocalVariable
+                        rmsd = rdMolAlign.AlignMol(mol_no_Hs, mol_no_Hs, j, i)
+                    else:
+                        rmsd = rdMolAlign.AlignMol(mol, mol, j, i)
+                    if rmsd < args.post_rmsd_threshold:
+                        unique = False
+                        break
+            if unique:
+                unique_conformer_indices.append(i)
 
-    print(f'Number of unique post minimization conformations identified: {len(unique_conformer_indices)}')
+        print(f'Number of unique post minimization conformations identified: {len(unique_conformer_indices)}')
+        with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
+            f.write("Number of unique post rmsd conformations: " + str(len(unique_conformer_indices)))
+            f.write('\n')
+
+        # Save unique conformers in molecule object
+        print(f'Saving conformations...')
+        post_rmsd_mol = copy.deepcopy(mol)
+        post_rmsd_mol.RemoveAllConformers()
+        count = 0
+        for i in unique_conformer_indices:
+            c = mol.GetConformer(i)
+            c.SetId(count)
+            post_rmsd_mol.AddConformer(c)
+            count += 1
+
+        # Save molecule to binary file
+        bin_str = post_rmsd_mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-rmsd-conformations.bin"), "wb") as b:
+            b.write(bin_str)
+
+        # Save pruned energies
+        res = AllChem.MMFFOptimizeMoleculeConfs(post_rmsd_mol, maxIters=0)
+        post_rmsd_energies = []
+        for i in range(len(res)):
+            post_rmsd_energies.append(res[i][1])
+
+    print(f'Plotting energy distributions...')
+    # Plot energy histograms
+    fig, ax = plt.subplots()
+    sns.histplot(energies, ax=ax)
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.set_ylabel("Density")
+    ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
+    plt.clf()
+    plt.close()
+
+    if args.post_minimize:
+        # noinspection PyUnboundLocalVariable
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.histplot(post_minimize_energies, ax=ax)
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
+        plt.clf()
+        plt.close()
+
+    if args.post_rmsd:
+        # noinspection PyUnboundLocalVariable
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.histplot(post_rmsd_energies, ax=ax, bins=np.arange(min(post_rmsd_energies) - 1., max(post_rmsd_energies) +
+                                                               1., 0.1))
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
+        plt.clf()
+        plt.close()

@@ -164,7 +164,7 @@ def rdkit_metropolis(args: Args) -> None:
 
         if step % args.subsample_frequency == 0:
             all_conformation_molecules.append(current_sample)
-            all_energies.append(res[0][1])
+            all_energies.append(current_energy * avogadro / 1000.)
 
         if step % args.log_frequency == 0:
             print(f'Steps completed: {step}, Num conformations: {len(conformation_molecules)}')
@@ -189,7 +189,7 @@ def rdkit_metropolis(args: Args) -> None:
 
     # Save molecule to binary file
     bin_str = mol.ToBinary()
-    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "unique-conformations.bin"), "wb") as b:
         b.write(bin_str)
 
     # Save all conformations in molecule object
@@ -202,7 +202,7 @@ def rdkit_metropolis(args: Args) -> None:
 
     # Save molecule to binary file
     bin_str = all_mol.ToBinary()
-    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
         b.write(bin_str)
 
     if args.post_minimize:

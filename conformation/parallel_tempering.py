@@ -2,6 +2,7 @@
 import copy
 from functools import partial
 import math
+import matplotlib.pyplot as plt
 import multiprocessing as mp
 import numpy as np
 import os
@@ -9,7 +10,9 @@ import random
 from typing import List
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolAlign
+from rdkit.Chem.Lipinski import RotatableBondSmarts
+import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
 from tqdm import tqdm
@@ -28,7 +31,14 @@ class Args(Tap):
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of parallel tempering steps
     swap_prob: float = 0.2  # Probability of performing a swap operation on a given sep
+    post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
+    post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
+    rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
+    post_rmsd_energy_diff: float = 2.0  # Energy difference above which two conformations are assumed to be different
+    post_rmsd_threshold: float = 0.05  # RMSD threshold for post minimized conformations
     subsample_frequency: int = 1  # Frequency at which configurations are saved from MH steps
+    parallel: bool = False  # Whether or not to run the program in parallel fashion
+    log_frequency: int = 100  # Log frequency
     save_dir: str  # Path to directory containing output files
 
 
@@ -77,45 +87,67 @@ def parallel_tempering(args: Args) -> None:
 
     print(f'Running HMC steps...')
     num_internal_accepted = [0]*len(args.temperatures)
-    num_swap_accepted = 0
+    num_swap_accepted = [0]*(len(args.temperatures) - 1)
+    num_swap_attempted = [0]*(len(args.temperatures) - 1)
+    total_num_swap_accepted = 0
     total_swap_attempted = 0
     for step in tqdm(range(args.num_steps)):
-        pool = mp.Pool(mp.cpu_count())
-        results = []
-
-        def callback_function(result, index):
-            """
-            test.
-            :param result:
-            :param index:
-            :return:
-            """
-            results.append(list(result) + [index])
-
-        for i in range(len(args.temperatures)):
-            new_callback_function = partial(callback_function, index=i)
-            pool.apply_async(hmc_step, args=(current_q_list[i], args.temperatures[i], k_b, avogadro, mass, num_atoms,
-                                             args.epsilon, args.L), callback=new_callback_function)
-        pool.close()
-        pool.join()
-        results.sort(key=lambda x: x[3])
-
-        for i in range(len(args.temperatures)):
-            accepted, current_q, current_energy, _ = results[i]
-
-            if accepted:
-                if i == 0:
-                    conformation_molecules.append(current_q)
-                    energies.append(current_energy)
-                num_internal_accepted[i] += 1
-
-            if i == 0:
-                if step % args.subsample_frequency == 0:
-                    all_conformation_molecules.append(current_q)
-                    all_energies.append(current_energy)
-
+        # TODO: finish breaking this up into non-swap and swap moves, where swap moves are added to the list of confs
         alpha = random.uniform(0, 1)
-        if alpha <= args.swap_prob:
+        if alpha > args.swap_prob:
+            if args.parallel:
+                pool = mp.Pool(mp.cpu_count())
+                results = []
+
+                def callback_function(result, index):
+                    """
+                    test.
+                    :param result:
+                    :param index:
+                    :return:
+                    """
+                    results.append(list(result) + [index])
+
+                for i in range(len(args.temperatures)):
+                    new_callback_function = partial(callback_function, index=i)
+                    pool.apply_async(hmc_step, args=(current_q_list[i], args.temperatures[i], k_b, avogadro, mass,
+                                                     num_atoms, args.epsilon, args.L), callback=new_callback_function)
+                pool.close()
+                pool.join()
+                results.sort(key=lambda x: x[3])
+
+                for i in range(len(args.temperatures)):
+                    accepted, current_q, current_energy, _ = results[i]
+
+                    if accepted:
+                        if i == 0:
+                            conformation_molecules.append(current_q)
+                            energies.append(current_energy)
+                        num_internal_accepted[i] += 1
+
+                    if i == 0:
+                        if step % args.subsample_frequency == 0:
+                            all_conformation_molecules.append(current_q)
+                            all_energies.append(current_energy)
+            else:
+                for i in range(len(args.temperatures)):
+                    accepted, current_q, current_energy = hmc_step(current_q_list[i], args.temperatures[i], k_b,
+                                                                   avogadro, mass, num_atoms, args.epsilon, args.L)
+
+                    if accepted:
+                        if i == 0:
+                            conformation_molecules.append(current_q)
+                            energies.append(current_energy)
+                        num_internal_accepted[i] += 1
+
+                    if i == 0:
+                        if step % args.subsample_frequency == 0:
+                            all_conformation_molecules.append(current_q)
+                            all_energies.append(current_energy)
+
+        # TODO: is this the right ordering for swap moves? should these be added to conformation molecules?
+        #  What should the various acceptance probabilities be and temperatures be?
+        else:
             swap_index = random.randint(0, len(args.temperatures) - 2)
             energy_k0, _ = calc_energy_grad(current_q_list[swap_index])
             energy_k0 *= (1000.0 * 4.184 / avogadro)
@@ -132,11 +164,172 @@ def parallel_tempering(args: Args) -> None:
                 tmp = current_q_list[swap_index]
                 current_q_list[swap_index] = current_q_list[swap_index + 1]
                 current_q_list[swap_index + 1] = tmp
-                num_swap_accepted += 1
+                num_swap_accepted[swap_index] += 1
+                total_num_swap_accepted += 1
+            num_swap_attempted[swap_index] += 1
             total_swap_attempted += 1
+
+        if step % args.log_frequency == 0:
+            print(f'Number of conformations identified: {len(conformation_molecules)}')
+            for i in range(len(args.temperatures)):
+                print(f'% Moves accepted for temperature {args.temperatures[i]}: '
+                      f'{float(num_internal_accepted[i]) / float(step + 1) * 100.0}')
+
+            for i in range(len(args.temperatures) - 1):
+                if num_swap_accepted[i] == 0:
+                    print(f'% Moves accepted for swap at base temperature {args.temperatures[i]}: NA')
+                else:
+                    print(f'% Moves accepted for swap at base temperature {args.temperatures[i]}: '
+                          f'{float(num_swap_accepted[i]) / num_swap_attempted[i] * 100.0}')
+
+            print(f'# Swap moves attempted: {total_swap_attempted}')
+            if total_swap_attempted == 0:
+                print(f'% Moves accepted for swap: {0.0}')
+                print(f'% Moves accepted for swap: NA')
+            else:
+                print(f'% Moves accepted for swap: '
+                      f'{float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
 
     print(f'Number of conformations identified: {len(conformation_molecules)}')
     for i in range(len(args.temperatures)):
         print(f'% Moves accepted for temperature {args.temperatures[i]}: '
               f'{float(num_internal_accepted[i]) / float(args.num_steps) * 100.0}')
-    print(f'% Moves accepted for swap: {float(num_swap_accepted) / float(total_swap_attempted) * 100.0}')
+    print(f'# Swap moves attempted: {total_swap_attempted}')
+    print(f'% Moves accepted for swap: {float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
+
+    # Discover the rotatable bonds
+    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
+    print(f'Num rotatable bonds: {len(rotatable_bonds)}')
+
+    with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
+        f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
+        f.write('\n')
+        f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
+        f.write('\n')
+
+    # Save unique conformations in molecule object
+    print(f'Saving conformations...')
+    for i in range(len(conformation_molecules)):
+        c = conformation_molecules[i].GetConformer()
+        c.SetId(i)
+        mol.AddConformer(c)
+
+    # Save molecule to binary file
+    bin_str = mol.ToBinary()
+    with open(os.path.join(args.save_dir, "unique-conformations.bin"), "wb") as b:
+        b.write(bin_str)
+
+    # Save all conformations in molecule object
+    all_mol = Chem.MolFromSmiles(args.smiles)
+    all_mol = Chem.AddHs(all_mol)
+    for i in range(len(all_conformation_molecules)):
+        c = all_conformation_molecules[i].GetConformer()
+        c.SetId(i)
+        all_mol.AddConformer(c)
+
+    # Save molecule to binary file
+    bin_str = all_mol.ToBinary()
+    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
+        b.write(bin_str)
+
+    if args.post_minimize:
+        print(f'Minimizing conformations...')
+        res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
+        post_minimize_energies = []
+        for i in range(len(res)):
+            post_minimize_energies.append(res[i][1])
+
+        # Save molecule to binary file
+        bin_str = mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
+            b.write(bin_str)
+
+    if args.post_rmsd:
+        print(f'RMSD pruning...')
+        # List of conformers to remove
+        unique_conformer_indices = []
+
+        if args.rmsd_remove_Hs:
+            # noinspection PyPep8Naming
+            mol_no_Hs = Chem.RemoveHs(mol)
+
+        # Loop through conformations to find unique ones
+        print(f'Begin pruning...')
+        for i in tqdm(range(mol.GetNumConformers())):
+            unique = True
+            for j in unique_conformer_indices:
+                # noinspection PyUnboundLocalVariable
+                energy_diff = abs(post_minimize_energies[i] - post_minimize_energies[j])
+                if energy_diff < args.post_rmsd_energy_diff:
+                    if args.rmsd_remove_Hs:
+                        # noinspection PyUnboundLocalVariable
+                        rmsd = rdMolAlign.AlignMol(mol_no_Hs, mol_no_Hs, j, i)
+                    else:
+                        rmsd = rdMolAlign.AlignMol(mol, mol, j, i)
+                    if rmsd < args.post_rmsd_threshold:
+                        unique = False
+                        break
+            if unique:
+                unique_conformer_indices.append(i)
+
+        print(f'Number of unique post minimization conformations identified: {len(unique_conformer_indices)}')
+        with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
+            f.write("Number of unique post rmsd conformations: " + str(len(unique_conformer_indices)))
+            f.write('\n')
+
+        # Save unique conformers in molecule object
+        print(f'Saving conformations...')
+        post_rmsd_mol = copy.deepcopy(mol)
+        post_rmsd_mol.RemoveAllConformers()
+        count = 0
+        for i in unique_conformer_indices:
+            c = mol.GetConformer(i)
+            c.SetId(count)
+            post_rmsd_mol.AddConformer(c)
+            count += 1
+
+        # Save molecule to binary file
+        bin_str = post_rmsd_mol.ToBinary()
+        with open(os.path.join(args.save_dir, "post-rmsd-conformations.bin"), "wb") as b:
+            b.write(bin_str)
+
+        # Save pruned energies
+        res = AllChem.MMFFOptimizeMoleculeConfs(post_rmsd_mol, maxIters=0)
+        post_rmsd_energies = []
+        for i in range(len(res)):
+            post_rmsd_energies.append(res[i][1])
+
+    print(f'Plotting energy distributions...')
+    # Plot energy histograms
+    # NOTE: defining the bins is useful because sometimes automatic bin placement takes forever
+    fig, ax = plt.subplots()
+    sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.set_ylabel("Frequency")
+    ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
+    plt.clf()
+    plt.close()
+
+    if args.post_minimize:
+        # noinspection PyUnboundLocalVariable
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.histplot(post_minimize_energies, ax=ax, bins=np.arange(min(post_minimize_energies) - 1.,
+                                                                   max(post_minimize_energies) + 1., 0.1))
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
+        plt.clf()
+        plt.close()
+
+    if args.post_rmsd:
+        # noinspection PyUnboundLocalVariable
+        fig, ax = plt.subplots()
+        # noinspection PyUnboundLocalVariable
+        sns.histplot(post_rmsd_energies, ax=ax, bins=np.arange(min(post_rmsd_energies) - 1., max(post_rmsd_energies) +
+                                                               1., 0.1))
+        ax.set_xlabel("Energy (kcal/mol)")
+        ax.set_ylabel("Frequency")
+        ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
+        plt.clf()
+        plt.close()

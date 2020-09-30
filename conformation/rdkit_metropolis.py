@@ -278,9 +278,9 @@ def rdkit_metropolis(args: Args) -> None:
     print(f'Plotting energy distributions...')
     # Plot energy histograms
     fig, ax = plt.subplots()
-    sns.histplot(energies, ax=ax)
+    sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
     ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Density")
+    ax.set_ylabel("Frequency")
     ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
     plt.clf()
     plt.close()
@@ -289,7 +289,8 @@ def rdkit_metropolis(args: Args) -> None:
         # noinspection PyUnboundLocalVariable
         fig, ax = plt.subplots()
         # noinspection PyUnboundLocalVariable
-        sns.histplot(post_minimize_energies, ax=ax)
+        sns.histplot(post_minimize_energies, ax=ax, bins=np.arange(min(post_minimize_energies) - 1.,
+                                                                   max(post_minimize_energies) + 1., 0.1))
         ax.set_xlabel("Energy (kcal/mol)")
         ax.set_ylabel("Frequency")
         ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))

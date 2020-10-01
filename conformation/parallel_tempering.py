@@ -1,6 +1,5 @@
 """ General framework for parallel tempering MCMC. """
 import copy
-from functools import partial
 import math
 import matplotlib.pyplot as plt
 import multiprocessing as mp
@@ -92,32 +91,20 @@ def parallel_tempering(args: Args) -> None:
     total_num_swap_accepted = 0
     total_swap_attempted = 0
     for step in tqdm(range(args.num_steps)):
-        # TODO: finish breaking this up into non-swap and swap moves, where swap moves are added to the list of confs
         alpha = random.uniform(0, 1)
         if alpha > args.swap_prob:
             if args.parallel:
                 pool = mp.Pool(mp.cpu_count())
-                results = []
-
-                def callback_function(result, index):
-                    """
-                    test.
-                    :param result:
-                    :param index:
-                    :return:
-                    """
-                    results.append(list(result) + [index])
-
+                args_list = []
                 for i in range(len(args.temperatures)):
-                    new_callback_function = partial(callback_function, index=i)
-                    pool.apply_async(hmc_step, args=(current_q_list[i], args.temperatures[i], k_b, avogadro, mass,
-                                                     num_atoms, args.epsilon, args.L), callback=new_callback_function)
+                    args_list.append([current_q_list[i], args.temperatures[i], k_b, avogadro, mass,
+                                      num_atoms, args.epsilon, args.L])
+                results = pool.starmap_async(hmc_step, args_list).get()
                 pool.close()
                 pool.join()
-                results.sort(key=lambda x: x[3])
 
                 for i in range(len(args.temperatures)):
-                    accepted, current_q, current_energy, _ = results[i]
+                    accepted, current_q, current_energy = results[i]
 
                     if accepted:
                         if i == 0:
@@ -145,8 +132,6 @@ def parallel_tempering(args: Args) -> None:
                             all_conformation_molecules.append(current_q)
                             all_energies.append(current_energy)
 
-        # TODO: is this the right ordering for swap moves? should these be added to conformation molecules?
-        #  What should the various acceptance probabilities be and temperatures be?
         else:
             swap_index = random.randint(0, len(args.temperatures) - 2)
             energy_k0, _ = calc_energy_grad(current_q_list[swap_index])
@@ -160,12 +145,21 @@ def parallel_tempering(args: Args) -> None:
 
             prob_ratio = math.exp(-delta)
             mu = random.uniform(0, 1)
+            if swap_index == 0:
+                energy, _ = calc_energy_grad(current_q_list[0])
             if mu <= prob_ratio:
                 tmp = current_q_list[swap_index]
                 current_q_list[swap_index] = current_q_list[swap_index + 1]
                 current_q_list[swap_index + 1] = tmp
                 num_swap_accepted[swap_index] += 1
                 total_num_swap_accepted += 1
+                if swap_index == 0:
+                    conformation_molecules.append(current_q_list[0])
+                    energies.append(energy)
+            if swap_index == 0:
+                if step % args.subsample_frequency == 0:
+                    all_conformation_molecules.append(current_q_list[0])
+                    all_energies.append(energy)
             num_swap_attempted[swap_index] += 1
             total_swap_attempted += 1
 
@@ -176,7 +170,7 @@ def parallel_tempering(args: Args) -> None:
                       f'{float(num_internal_accepted[i]) / float(step + 1) * 100.0}')
 
             for i in range(len(args.temperatures) - 1):
-                if num_swap_accepted[i] == 0:
+                if num_swap_attempted[i] == 0:
                     print(f'% Moves accepted for swap at base temperature {args.temperatures[i]}: NA')
                 else:
                     print(f'% Moves accepted for swap at base temperature {args.temperatures[i]}: '

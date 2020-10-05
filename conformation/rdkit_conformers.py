@@ -36,8 +36,8 @@ def rdkit_conformers(args: Args) -> None:
 
     m = Chem.MolFromSmiles(args.smiles)
     m2 = Chem.AddHs(m)
-    _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_configs)
-    res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=args.max_iter)
+    _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_configs, numThreads=0)
+    res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=args.max_iter, numThreads=0)
     rms_list = [0.0]
     AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 

@@ -29,7 +29,7 @@ class Args(Tap):
     epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of parallel tempering steps
-    swap_prob: float = 0.2  # Probability of performing a swap operation on a given sep
+    swap_prob: float = 0.2  # Probability of performing a swap operation on a given step
     post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
     post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
@@ -52,7 +52,7 @@ def parallel_tempering(args: Args) -> None:
     # Define constants
     k_b = 3.297e-24  # Boltzmann constant in cal/K
     avogadro = 6.022e23
-    args.epsilon *= 1e-15
+    args.epsilon *= 1e-15  # Convert to femtoseconds
 
     # Load molecule
     # noinspection PyUnresolvedReferences
@@ -93,7 +93,7 @@ def parallel_tempering(args: Args) -> None:
     for step in tqdm(range(args.num_steps)):
         alpha = random.uniform(0, 1)
         if alpha > args.swap_prob:
-            if args.parallel:
+            if args.parallel:  # Parallelize the MD update across all of the temperatures
                 pool = mp.Pool(mp.cpu_count())
                 args_list = []
                 for i in range(len(args.temperatures)):
@@ -103,34 +103,26 @@ def parallel_tempering(args: Args) -> None:
                 pool.close()
                 pool.join()
 
-                for i in range(len(args.temperatures)):
-                    accepted, current_q, current_energy = results[i]
-
-                    if accepted:
-                        if i == 0:
-                            conformation_molecules.append(current_q)
-                            energies.append(current_energy)
-                        num_internal_accepted[i] += 1
-
-                    if i == 0:
-                        if step % args.subsample_frequency == 0:
-                            all_conformation_molecules.append(current_q)
-                            all_energies.append(current_energy)
             else:
+                results = []
                 for i in range(len(args.temperatures)):
                     accepted, current_q, current_energy = hmc_step(current_q_list[i], args.temperatures[i], k_b,
                                                                    avogadro, mass, num_atoms, args.epsilon, args.L)
+                    results.append([accepted, current_q, current_energy])
 
-                    if accepted:
-                        if i == 0:
-                            conformation_molecules.append(current_q)
-                            energies.append(current_energy)
-                        num_internal_accepted[i] += 1
+            for i in range(len(args.temperatures)):
+                accepted, current_q, current_energy = results[i]
 
+                if accepted:
                     if i == 0:
-                        if step % args.subsample_frequency == 0:
-                            all_conformation_molecules.append(current_q)
-                            all_energies.append(current_energy)
+                        conformation_molecules.append(current_q)
+                        energies.append(current_energy)
+                    num_internal_accepted[i] += 1
+
+                if i == 0:
+                    if step % args.subsample_frequency == 0:
+                        all_conformation_molecules.append(current_q)
+                        all_energies.append(current_energy)
 
         else:
             swap_index = random.randint(0, len(args.temperatures) - 2)
@@ -198,10 +190,18 @@ def parallel_tempering(args: Args) -> None:
     with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
         f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
         f.write('\n')
-        f.write("Number of unique conformations identified: " + str(len(conformation_molecules)))
+        f.write("Number of conformations accepted: " + str(len(conformation_molecules)))
+        f.write('\n')
+        for i in range(len(args.temperatures)):
+            f.write(f'% Moves accepted for temperature {args.temperatures[i]}: '
+                    f'{float(num_internal_accepted[i]) / float(args.num_steps) * 100.0}')
+            f.write('\n')
+        f.write(f'# Swap moves attempted: {total_swap_attempted}')
+        f.write('\n')
+        f.write(f'% Moves accepted for swap: {float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
         f.write('\n')
 
-    # Save unique conformations in molecule object
+    # Save accepted conformations in molecule object
     print(f'Saving conformations...')
     for i in range(len(conformation_molecules)):
         c = conformation_molecules[i].GetConformer()
@@ -210,10 +210,10 @@ def parallel_tempering(args: Args) -> None:
 
     # Save molecule to binary file
     bin_str = mol.ToBinary()
-    with open(os.path.join(args.save_dir, "unique-conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "accepted-conformations.bin"), "wb") as b:
         b.write(bin_str)
 
-    # Save all conformations in molecule object
+    # Save all sub sampled conformations in molecule object
     all_mol = Chem.MolFromSmiles(args.smiles)
     all_mol = Chem.AddHs(all_mol)
     for i in range(len(all_conformation_molecules)):
@@ -227,7 +227,7 @@ def parallel_tempering(args: Args) -> None:
         b.write(bin_str)
 
     if args.post_minimize:
-        print(f'Minimizing conformations...')
+        print(f'Minimizing accepted conformations...')
         res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
         post_minimize_energies = []
         for i in range(len(res)):
@@ -248,7 +248,6 @@ def parallel_tempering(args: Args) -> None:
             mol_no_Hs = Chem.RemoveHs(mol)
 
         # Loop through conformations to find unique ones
-        print(f'Begin pruning...')
         for i in tqdm(range(mol.GetNumConformers())):
             unique = True
             for j in unique_conformer_indices:
@@ -266,9 +265,9 @@ def parallel_tempering(args: Args) -> None:
             if unique:
                 unique_conformer_indices.append(i)
 
-        print(f'Number of unique post minimization conformations identified: {len(unique_conformer_indices)}')
+        print(f'Number of unique conformations identified: {len(unique_conformer_indices)}')
         with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
-            f.write("Number of unique post rmsd conformations: " + str(len(unique_conformer_indices)))
+            f.write("Number of unique post rmsd conformations identified: " + str(len(unique_conformer_indices)))
             f.write('\n')
 
         # Save unique conformers in molecule object
@@ -327,3 +326,6 @@ def parallel_tempering(args: Args) -> None:
         ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
         plt.clf()
         plt.close()
+
+    plt.plot(all_energies)
+    plt.savefig(os.path.join(args.save_dir, "all-energies.png"))

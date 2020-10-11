@@ -2,7 +2,6 @@
 import copy
 import math
 import matplotlib.pyplot as plt
-import multiprocessing as mp
 import numpy as np
 import os
 import random
@@ -36,7 +35,6 @@ class Args(Tap):
     post_rmsd_energy_diff: float = 2.0  # Energy difference above which two conformations are assumed to be different
     post_rmsd_threshold: float = 0.05  # RMSD threshold for post minimized conformations
     subsample_frequency: int = 1  # Frequency at which configurations are saved from MH steps
-    parallel: bool = False  # Whether or not to run the program in parallel fashion
     log_frequency: int = 100  # Log frequency
     save_dir: str  # Path to directory containing output files
 
@@ -85,6 +83,7 @@ def parallel_tempering(args: Args) -> None:
     all_energies = [energy]
 
     print(f'Running HMC steps...')
+    swap = [0]
     num_internal_accepted = [0]*len(args.temperatures)
     num_swap_accepted = [0]*(len(args.temperatures) - 1)
     num_swap_attempted = [0]*(len(args.temperatures) - 1)
@@ -93,22 +92,11 @@ def parallel_tempering(args: Args) -> None:
     for step in tqdm(range(args.num_steps)):
         alpha = random.uniform(0, 1)
         if alpha > args.swap_prob:
-            if args.parallel:  # Parallelize the MD update across all of the temperatures
-                pool = mp.Pool(mp.cpu_count())
-                args_list = []
-                for i in range(len(args.temperatures)):
-                    args_list.append([current_q_list[i], args.temperatures[i], k_b, avogadro, mass,
-                                      num_atoms, args.epsilon, args.L])
-                results = pool.starmap_async(hmc_step, args_list).get()
-                pool.close()
-                pool.join()
-
-            else:
-                results = []
-                for i in range(len(args.temperatures)):
-                    accepted, current_q, current_energy = hmc_step(current_q_list[i], args.temperatures[i], k_b,
-                                                                   avogadro, mass, num_atoms, args.epsilon, args.L)
-                    results.append([accepted, current_q, current_energy])
+            results = []
+            for i in range(len(args.temperatures)):
+                accepted, current_q, current_energy = hmc_step(current_q_list[i], args.temperatures[i], k_b,
+                                                               avogadro, mass, num_atoms, args.epsilon, args.L)
+                results.append([accepted, current_q, current_energy])
 
             for i in range(len(args.temperatures)):
                 accepted, current_q, current_energy = results[i]
@@ -123,6 +111,7 @@ def parallel_tempering(args: Args) -> None:
                     if step % args.subsample_frequency == 0:
                         all_conformation_molecules.append(current_q)
                         all_energies.append(current_energy)
+                        swap.append(0)
 
         else:
             swap_index = random.randint(0, len(args.temperatures) - 2)
@@ -148,10 +137,13 @@ def parallel_tempering(args: Args) -> None:
                 if swap_index == 0:
                     conformation_molecules.append(current_q_list[0])
                     energies.append(energy)
+                    swap.append(100)
             if swap_index == 0:
                 if step % args.subsample_frequency == 0:
                     all_conformation_molecules.append(current_q_list[0])
                     all_energies.append(energy)
+                    if mu > prob_ratio:
+                        swap.append(0)
             num_swap_attempted[swap_index] += 1
             total_swap_attempted += 1
 
@@ -328,4 +320,5 @@ def parallel_tempering(args: Args) -> None:
         plt.close()
 
     plt.plot(all_energies)
+    plt.plot(swap)
     plt.savefig(os.path.join(args.save_dir, "all-energies.png"))

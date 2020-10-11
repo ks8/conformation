@@ -1,5 +1,6 @@
 """ Metropolis-Hastings conformational search using RDKit. """
 import copy
+from logging import Logger
 import math
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -27,6 +28,7 @@ class Args(Tap):
     num_steps: int = 1000  # Number of MC steps to perform
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
+    init_minimize: bool = False  # Whether or not to FF-minimize the initial ETKDG-generated conformation
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
     e_threshold: float = 50  # Energy cutoff
     num_bonds_to_rotate: int = None  # Number of bonds to rotate in proposal distribution
@@ -96,13 +98,15 @@ def rotate_bonds(current_sample: Chem.rdchem.Mol, rotatable_bonds: Tuple, args: 
     return proposed_sample
 
 
-def rdkit_metropolis(args: Args) -> None:
+def rdkit_metropolis(args: Args, logger: Logger) -> None:
     """
     Metropolis-Hastings conformational search using RDKit.
     :param args: System arguments.
+    :param logger: System logger.
     :return: None.
     """
-    os.makedirs(args.save_dir)
+    # Set up logger
+    debug, info = logger.debug, logger.info
 
     # Define constants
     k_b = 3.297e-24  # Boltzmann constant in cal/K
@@ -119,16 +123,19 @@ def rdkit_metropolis(args: Args) -> None:
     mol = Chem.MolFromSmiles(args.smiles)
     mol = Chem.AddHs(mol)
 
-    print(f'Starting search: {args.smiles}')
+    debug(f'Starting search: {args.smiles}')
 
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
-    print(f'Num rotatable bonds: {len(rotatable_bonds)}')
+    debug(f'Num rotatable bonds: {len(rotatable_bonds)}')
 
     # Generate initial conformation and minimize it
     current_sample = copy.deepcopy(mol)
     AllChem.EmbedMolecule(current_sample, maxAttempts=args.max_attempts)
-    res = AllChem.MMFFOptimizeMoleculeConfs(current_sample)
+    if args.init_minimize:
+        res = AllChem.MMFFOptimizeMoleculeConfs(current_sample)
+    else:
+        res = AllChem.MMFFOptimizeMoleculeConfs(current_sample, maxIters=0)
     current_energy = res[0][1] * 1000.0 / avogadro
     conformation_molecules.append(current_sample)
     energies.append(res[0][1])
@@ -136,7 +143,7 @@ def rdkit_metropolis(args: Args) -> None:
     all_energies.append(res[0][1])
 
     # Run MC steps
-    print(f'Running MC steps...')
+    debug(f'Running MC steps...')
     num_accepted = 0
     for step in tqdm(range(args.num_steps)):
         proposed_sample = rotate_bonds(current_sample, rotatable_bonds, args)
@@ -171,22 +178,14 @@ def rdkit_metropolis(args: Args) -> None:
                 acceptance_percentage = 0.0
             else:
                 acceptance_percentage = float(num_accepted)/float(step + 1)*100.0
-            print(f'Steps completed: {step}, num conformations accepted: {len(conformation_molecules)}, '
+            debug(f'Steps completed: {step}, num conformations accepted: {len(conformation_molecules)}, '
                   f'acceptance percentage: {acceptance_percentage}')
 
-    print(f'Number of conformations accepted: {len(conformation_molecules)}')
-    print(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
-
-    with open(os.path.join(args.save_dir, "info.txt"), "w") as f:
-        f.write("Number of rotatable bonds: " + str(len(rotatable_bonds)))
-        f.write('\n')
-        f.write("Number of conformations accepted: " + str(len(conformation_molecules)))
-        f.write('\n')
-        f.write("% Moves accepted: " + str(float(num_accepted)/float(args.num_steps)*100.0))
-        f.write('\n')
+    debug(f'Number of conformations accepted: {len(conformation_molecules)}')
+    debug(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
 
     # Save accepted conformations in molecule object
-    print(f'Saving conformations...')
+    debug(f'Saving conformations...')
     for i in range(len(conformation_molecules)):
         c = conformation_molecules[i].GetConformer()
         c.SetId(i)
@@ -211,7 +210,7 @@ def rdkit_metropolis(args: Args) -> None:
         b.write(bin_str)
 
     if args.post_minimize:
-        print(f'Minimizing accepted conformations...')
+        debug(f'Minimizing accepted conformations...')
         res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
         post_minimize_energies = []
         for i in range(len(res)):
@@ -223,7 +222,7 @@ def rdkit_metropolis(args: Args) -> None:
             b.write(bin_str)
 
     if args.post_rmsd:
-        print(f'RMSD pruning...')
+        debug(f'RMSD pruning...')
         # List of conformers to remove
         unique_conformer_indices = []
 
@@ -252,13 +251,10 @@ def rdkit_metropolis(args: Args) -> None:
             if unique:
                 unique_conformer_indices.append(i)
 
-        print(f'Number of unique conformations identified: {len(unique_conformer_indices)}')
-        with open(os.path.join(args.save_dir, "info.txt"), "a") as f:
-            f.write("Number of unique post rmsd conformations identified: " + str(len(unique_conformer_indices)))
-            f.write('\n')
+        debug(f'Number of unique conformations identified: {len(unique_conformer_indices)}')
 
         # Save unique conformers in molecule object
-        print(f'Saving conformations...')
+        debug(f'Saving conformations...')
         post_rmsd_mol = copy.deepcopy(mol)
         post_rmsd_mol.RemoveAllConformers()
         count = 0
@@ -279,14 +275,22 @@ def rdkit_metropolis(args: Args) -> None:
         for i in range(len(res)):
             post_rmsd_energies.append(res[i][1])
 
-    print(f'Plotting energy distributions...')
+    debug(f'Plotting energy distributions...')
     # Plot energy histograms
     # NOTE: defining the bins is useful because sometimes automatic bin placement takes forever
     fig, ax = plt.subplots()
     sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
     ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Frequency")
+    ax.set_ylabel("Count")
     ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
+    plt.clf()
+    plt.close()
+
+    fig, ax = plt.subplots()
+    sns.histplot(all_energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.set_ylabel("Count")
+    ax.figure.savefig(os.path.join(args.save_dir, "all-energy-distribution.png"))
     plt.clf()
     plt.close()
 

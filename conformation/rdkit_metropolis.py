@@ -25,6 +25,8 @@ class Args(Tap):
     System arguments.
     """
     smiles: str  # Molecular SMILES string
+    cartesian: bool = False  # Whether or not to do MC proposals in Cartesian coords
+    delta: float = 0.3  # Displacement value for Cartesian coord proposals
     num_steps: int = 1000  # Number of MC steps to perform
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
@@ -54,7 +56,7 @@ def rotate_bonds(current_sample: Chem.rdchem.Mol, rotatable_bonds: Tuple, args: 
     :param current_sample: Current geometry.
     :param rotatable_bonds: Number of rotatable bonds.
     :param args: System arguments.
-    :return:
+    :return: Proposed geometry.
     """
     # Initialize proposed sample
     proposed_sample = copy.deepcopy(current_sample)
@@ -94,6 +96,35 @@ def rotate_bonds(current_sample: Chem.rdchem.Mol, rotatable_bonds: Tuple, args: 
         # Set the dihedral angle to random angle
         rdMolTransforms.SetDihedralRad(proposed_conf, atom_a_neighbor_index, atom_a_idx,
                                        atom_b_idx, atom_b_neighbor_index, new_angle)
+
+    return proposed_sample
+
+
+# noinspection PyUnresolvedReferences
+def move_particle(current_sample: Chem.rdchem.Mol, args: Args) -> Chem.rdchem.Mol:
+    """
+    Proposal distribution for modifying a single particle's Cartesian coordinates.
+    :param current_sample: Current geometry.
+    :param args: System arguments.
+    :return: Proposed geometry.
+    """
+    # Initialize proposed sample
+    proposed_sample = copy.deepcopy(current_sample)
+    proposed_conf = proposed_sample.GetConformer()
+
+    # Select a particle at random
+    num_atoms = proposed_sample.GetNumAtoms()
+    particle_index = random.randint(0, num_atoms - 1)
+
+    # Modify the particle's Cartesian coordinates
+    pos = proposed_conf.GetPositions()
+    epsilons = [random.uniform(0, 1) for _ in range(3)]
+    for i in range(3):
+        pos[particle_index][i] += (1./(math.sqrt(3)))*(epsilons[i] - 0.5)*args.delta
+
+    # Save updated atomic coordinates to the conformation object
+    proposed_conf.SetAtomPosition(particle_index, Point3D(pos[particle_index][0], pos[particle_index][1],
+                                                          pos[particle_index][2]))
 
     return proposed_sample
 
@@ -146,7 +177,10 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
     debug(f'Running MC steps...')
     num_accepted = 0
     for step in tqdm(range(args.num_steps)):
-        proposed_sample = rotate_bonds(current_sample, rotatable_bonds, args)
+        if args.cartesian:
+            proposed_sample = move_particle(current_sample, args)
+        else:
+            proposed_sample = rotate_bonds(current_sample, rotatable_bonds, args)
 
         # Compute the energy of the proposed sample
         if args.minimize:
@@ -301,7 +335,7 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
         sns.histplot(post_minimize_energies, ax=ax, bins=np.arange(min(post_minimize_energies) - 1.,
                                                                    max(post_minimize_energies) + 1., 0.1))
         ax.set_xlabel("Energy (kcal/mol)")
-        ax.set_ylabel("Frequency")
+        ax.set_ylabel("Count")
         ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
         plt.clf()
         plt.close()
@@ -313,7 +347,7 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
         sns.histplot(post_rmsd_energies, ax=ax, bins=np.arange(min(post_rmsd_energies) - 1., max(post_rmsd_energies) +
                                                                1., 0.1))
         ax.set_xlabel("Energy (kcal/mol)")
-        ax.set_ylabel("Frequency")
+        ax.set_ylabel("Count")
         ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
         plt.clf()
         plt.close()

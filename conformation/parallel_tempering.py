@@ -24,6 +24,7 @@ class Args(Tap):
     """
     smiles: str  # Molecular SMILES string
     max_attempts: int = 10000  # Max number of embedding attempts
+    num_minimization_iters: int = 0  # Number of minimization steps
     temperatures: List[float] = [300, 500]  # Temperature ladder, with the first being the target temperature
     epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
@@ -64,6 +65,7 @@ def parallel_tempering(args: Args) -> None:
     initial_q = copy.deepcopy(mol)
     num_atoms = initial_q.GetNumAtoms()
     AllChem.EmbedMultipleConfs(initial_q, maxAttempts=args.max_attempts, numConfs=len(args.temperatures), numThreads=0)
+    AllChem.MMFFOptimizeMoleculeConfs(initial_q, maxIters=args.num_minimization_iters, numThreads=0)
     current_q_list = []
     for i in range(len(args.temperatures)):
         current_q = copy.deepcopy(mol)
@@ -105,6 +107,7 @@ def parallel_tempering(args: Args) -> None:
                     if i == 0:
                         conformation_molecules.append(current_q)
                         energies.append(current_energy)
+                    current_q_list[i] = current_q  # Necessary because Python is pass by object reference!
                     num_internal_accepted[i] += 1
 
                 if i == 0:
@@ -113,7 +116,7 @@ def parallel_tempering(args: Args) -> None:
                         all_energies.append(current_energy)
                         swap.append(0)
 
-        else:
+        elif len(args.temperatures) > 1:
             swap_index = random.randint(0, len(args.temperatures) - 2)
             energy_k0, _ = calc_energy_grad(current_q_list[swap_index])
             energy_k0 *= (1000.0 * 4.184 / avogadro)
@@ -129,8 +132,8 @@ def parallel_tempering(args: Args) -> None:
             if swap_index == 0:
                 energy, _ = calc_energy_grad(current_q_list[0])
             if mu <= prob_ratio:
-                tmp = current_q_list[swap_index]
-                current_q_list[swap_index] = current_q_list[swap_index + 1]
+                tmp = copy.deepcopy(current_q_list[swap_index])
+                current_q_list[swap_index] = copy.deepcopy(current_q_list[swap_index + 1])
                 current_q_list[swap_index + 1] = tmp
                 num_swap_accepted[swap_index] += 1
                 total_num_swap_accepted += 1
@@ -173,7 +176,8 @@ def parallel_tempering(args: Args) -> None:
         print(f'% Moves accepted for temperature {args.temperatures[i]}: '
               f'{float(num_internal_accepted[i]) / float(args.num_steps) * 100.0}')
     print(f'# Swap moves attempted: {total_swap_attempted}')
-    print(f'% Moves accepted for swap: {float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
+    if total_swap_attempted > 0:
+        print(f'% Moves accepted for swap: {float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
 
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
@@ -190,7 +194,9 @@ def parallel_tempering(args: Args) -> None:
             f.write('\n')
         f.write(f'# Swap moves attempted: {total_swap_attempted}')
         f.write('\n')
-        f.write(f'% Moves accepted for swap: {float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
+        if total_swap_attempted:
+            f.write(f'% Moves accepted for swap: '
+                    f'{float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
         f.write('\n')
 
     # Save accepted conformations in molecule object

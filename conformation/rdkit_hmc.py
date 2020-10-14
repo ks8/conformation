@@ -24,6 +24,7 @@ class Args(Tap):
     """
     smiles: str  # Molecular SMILES string
     max_attempts: int = 10000  # Max number of embedding attempts
+    num_minimization_iters: int = 0  # Number of minimization steps
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
@@ -177,6 +178,7 @@ def rdkit_hmc(args: Args) -> None:
     # Here, we consider the variables of interest, q, to effectively be the atomic coordinates
     current_q = copy.deepcopy(mol)
     AllChem.EmbedMolecule(current_q, maxAttempts=args.max_attempts)
+    AllChem.MMFFOptimizeMoleculeConfs(current_q, maxIters=args.num_minimization_iters)
     num_atoms = current_q.GetNumAtoms()
 
     # Masses in kg

@@ -3,11 +3,11 @@ https://open-babel.readthedocs.io/en/latest/3DStructureGen/multipleconformers.ht
 import os
 
 from conformation.create_logger import create_logger
-from conformation.systematic_search import systematic_search, Args
+from conformation.confab import confab, Args
 
 
 if __name__ == '__main__':
     args = Args().parse_args()
     logger = create_logger(name='train', save_dir=args.save_dir)
     args.save(os.path.join(args.save_dir, "args.json"))
-    systematic_search(args, logger)
+    confab(args, logger)

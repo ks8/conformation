@@ -2,19 +2,16 @@
 import copy
 from logging import Logger
 import math
-import matplotlib.pyplot as plt
-import numpy as np 
 import os
 from typing import List, Tuple
 
 import random
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign, rdMolTransforms
+from rdkit.Chem import AllChem, rdMolTransforms
 from rdkit.Chem.Lipinski import RotatableBondSmarts
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
 from scipy.stats import truncnorm
-import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
 from tqdm import tqdm
@@ -31,15 +28,9 @@ class Args(Tap):
     max_attempts: int = 10000  # Max number of embedding attempts
     temp: float = 298.0  # Temperature for computing Boltzmann probabilities
     init_minimize: bool = False  # Whether or not to FF-minimize the initial ETKDG-generated conformation
-    rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD values
-    e_threshold: float = 50  # Energy cutoff
     num_bonds_to_rotate: int = None  # Number of bonds to rotate in proposal distribution
     random_bonds: bool = False  # Whether or not to select a random number of bonds to rotate in proposal distribution
     minimize: bool = False  # Whether or not to energy-minimize proposed samples
-    post_minimize: bool = False  # Whether or not to energy-minimize saved samples after MC
-    post_rmsd: bool = False  # Whether to RMSD prune saved (and energy-minimized if post_minimize=True) samples after MC
-    post_rmsd_threshold: float = 0.05  # RMSD threshold for post minimized conformations
-    post_rmsd_energy_diff: float = 2.0  # Energy difference above which two conformations are assumed to be different
     clip_deviation: float = 2.0  # Distance of clip values for truncated normal on either side of the mean
     trunc_std: float = 1.0  # Standard deviation desired for truncated normal
     random_std: bool = False  # Whether or not to select a random trunc_std value at each MC step
@@ -242,112 +233,3 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
     bin_str = all_mol.ToBinary()
     with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
         b.write(bin_str)
-
-    if args.post_minimize:
-        debug(f'Minimizing accepted conformations...')
-        res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
-        post_minimize_energies = []
-        for i in range(len(res)):
-            post_minimize_energies.append(res[i][1])
-
-        # Save molecule to binary file
-        bin_str = mol.ToBinary()
-        with open(os.path.join(args.save_dir, "post-minimization-conformations.bin"), "wb") as b:
-            b.write(bin_str)
-
-    if args.post_rmsd:
-        debug(f'RMSD pruning...')
-        # List of conformers to remove
-        unique_conformer_indices = []
-
-        if args.rmsd_remove_Hs:
-            # noinspection PyPep8Naming
-            mol_no_Hs = Chem.RemoveHs(mol)
-
-        # Loop through conformations to find unique ones
-        for i in tqdm(range(mol.GetNumConformers())):
-            unique = True
-            for j in unique_conformer_indices:
-                if args.post_minimize:
-                    # noinspection PyUnboundLocalVariable
-                    energy_diff = abs(post_minimize_energies[i] - post_minimize_energies[j])
-                else:
-                    energy_diff = abs(energies[i] - energies[j])
-                if energy_diff < args.post_rmsd_energy_diff:
-                    if args.rmsd_remove_Hs:
-                        # noinspection PyUnboundLocalVariable
-                        rmsd = rdMolAlign.AlignMol(mol_no_Hs, mol_no_Hs, j, i)
-                    else:
-                        rmsd = rdMolAlign.AlignMol(mol, mol, j, i)
-                    if rmsd < args.post_rmsd_threshold:
-                        unique = False
-                        break
-            if unique:
-                unique_conformer_indices.append(i)
-
-        debug(f'Number of unique conformations identified: {len(unique_conformer_indices)}')
-
-        # Save unique conformers in molecule object
-        debug(f'Saving conformations...')
-        post_rmsd_mol = copy.deepcopy(mol)
-        post_rmsd_mol.RemoveAllConformers()
-        count = 0
-        for i in unique_conformer_indices:
-            c = mol.GetConformer(i)
-            c.SetId(count)
-            post_rmsd_mol.AddConformer(c)
-            count += 1
-
-        # Save molecule to binary file
-        bin_str = post_rmsd_mol.ToBinary()
-        with open(os.path.join(args.save_dir, "post-rmsd-conformations.bin"), "wb") as b:
-            b.write(bin_str)
-
-        # Save pruned energies
-        res = AllChem.MMFFOptimizeMoleculeConfs(post_rmsd_mol, maxIters=0)
-        post_rmsd_energies = []
-        for i in range(len(res)):
-            post_rmsd_energies.append(res[i][1])
-
-    debug(f'Plotting energy distributions...')
-    # Plot energy histograms
-    # NOTE: defining the bins is useful because sometimes automatic bin placement takes forever
-    fig, ax = plt.subplots()
-    sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
-    ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Count")
-    ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
-    plt.clf()
-    plt.close()
-
-    fig, ax = plt.subplots()
-    sns.histplot(all_energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
-    ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Count")
-    ax.figure.savefig(os.path.join(args.save_dir, "all-energy-distribution.png"))
-    plt.clf()
-    plt.close()
-
-    if args.post_minimize:
-        # noinspection PyUnboundLocalVariable
-        fig, ax = plt.subplots()
-        # noinspection PyUnboundLocalVariable
-        sns.histplot(post_minimize_energies, ax=ax, bins=np.arange(min(post_minimize_energies) - 1.,
-                                                                   max(post_minimize_energies) + 1., 0.1))
-        ax.set_xlabel("Energy (kcal/mol)")
-        ax.set_ylabel("Count")
-        ax.figure.savefig(os.path.join(args.save_dir, "post-minimization-energy-distribution.png"))
-        plt.clf()
-        plt.close()
-
-    if args.post_rmsd:
-        # noinspection PyUnboundLocalVariable
-        fig, ax = plt.subplots()
-        # noinspection PyUnboundLocalVariable
-        sns.histplot(post_rmsd_energies, ax=ax, bins=np.arange(min(post_rmsd_energies) - 1., max(post_rmsd_energies) +
-                                                               1., 0.1))
-        ax.set_xlabel("Energy (kcal/mol)")
-        ax.set_ylabel("Count")
-        ax.figure.savefig(os.path.join(args.save_dir, "post-rmsd-energy-distribution.png"))
-        plt.clf()
-        plt.close()

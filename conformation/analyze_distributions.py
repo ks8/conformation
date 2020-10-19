@@ -31,7 +31,7 @@ def analyze_distributions(args: Args) -> None:
     # noinspection PyUnresolvedReferences
     mol = Chem.Mol(open(args.data_path, "rb").read())
 
-    # Compute total energies
+    print("Computing energies...")
     res = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=0, numThreads=0)
     energies = []
     for i in range(len(res)):
@@ -46,6 +46,7 @@ def analyze_distributions(args: Args) -> None:
     plt.clf()
     plt.close()
 
+    print("Computing marginal distributions of rotatable bond angles...")
     # Compute marginal distributions of rotatable bond torsional angles
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
     atom_indices = []

@@ -5,6 +5,7 @@ from logging import Logger
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from typing_extensions import Literal
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign, rdmolfiles
@@ -19,6 +20,7 @@ class Args(Tap):
     System arguments.
     """
     smiles: str  # Molecular SMILES string
+    generator: Literal["rdkit", "obabel"]  # Specify which program to use for generating the initial 3D structure
     rcutoff: float = 0.5  # RMSD cutoff
     ecutoff: float = 50.0  # Energy cutoff
     conf: int = 1000000  # Maximum number of conformations to check
@@ -38,24 +40,34 @@ def systematic_search(args: Args, logger: Logger):
     # Set up logger
     debug, info = logger.debug, logger.info
 
-    # Load molecule
-    mol = Chem.MolFromSmiles(args.smiles)
-    mol = Chem.AddHs(mol)
+    print(f'Generating initial conformation...')
+    if args.generator == "rdkit":
+        # Load molecule
+        mol = Chem.MolFromSmiles(args.smiles)
+        mol = Chem.AddHs(mol)
 
-    # Embed molecule
-    # NOTE: This will produce the same embedding each time the program is run
-    AllChem.EmbedMolecule(mol)
+        # Embed molecule
+        # NOTE: This will produce the same embedding each time the program is run
+        AllChem.EmbedMolecule(mol)
 
-    # Minimize if required
-    if args.init_minimize:
-        AllChem.MMFFOptimizeMoleculeConfs(mol)
+        # Minimize if required
+        if args.init_minimize:
+            AllChem.MMFFOptimizeMoleculeConfs(mol)
 
-    # Save molecule as PDB file
-    print(rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.save_dir, "tmp.pdb"), "w+"))
+        # Save molecule as PDB file
+        print(rdmolfiles.MolToPDBBlock(mol), file=open(os.path.join(args.save_dir, "tmp.pdb"), "w+"))
 
-    # Convert PDB to SDF using Open Babel
-    os.system("obabel -ipdb " + os.path.join(args.save_dir, "tmp.pdb") + " -osdf -O " +
-              os.path.join(args.save_dir, "tmp.sdf"))
+        # Convert PDB to SDF using Open Babel
+        os.system("obabel -ipdb " + os.path.join(args.save_dir, "tmp.pdb") + " -osdf -O " +
+                  os.path.join(args.save_dir, "tmp.sdf"))
+
+    else:
+        # Create SMILES file
+        with open(os.path.join(args.save_dir, "tmp.smi"), "w") as f:
+            f.write(args.smiles)
+
+        os.system("obabel -ismi " + os.path.join(args.save_dir, "tmp.smi") + " -O " +
+                  os.path.join(args.save_dir, "tmp.sdf") + " --gen3D")
 
     # Generate conformers using Confab
     debug(f'Generating conformers...')
@@ -164,6 +176,7 @@ def systematic_search(args: Args, logger: Logger):
         plt.close()
 
     # Remove auxiliary files
-    os.remove(os.path.join(args.save_dir, "tmp.pdb"))
+    if args.generator == "rdkit":
+        os.remove(os.path.join(args.save_dir, "tmp.pdb"))
     os.remove(os.path.join(args.save_dir, "tmp.sdf"))
     os.remove(os.path.join(args.save_dir, "tmp.energy"))

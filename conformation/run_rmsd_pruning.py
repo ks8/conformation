@@ -19,7 +19,7 @@ class Args(Tap):
     minimize: bool = False  # Whether or not to minimize conformations before RMSD pruning
     rmsd_func: Literal["GetBestRMS", "AlignMol"] = "GetBestRMS"  # RMSD computation options
     remove_Hs: bool = False  # Whether or not to do RMSD calculations without Hydrogen atoms
-    energy_threshold: float = 2.0  # Energy threshold for deciding two conformers are the same (kcal/mol)
+    energy_threshold: float = 2.0  # Energy threshold above which 2 conformers are considered different (kcal/mol)
     rmsd_threshold: float = 0.5  # RMSD threshold for deciding two conformers are the same (Angstroms)
     save_dir: str  # Path to output file containing pruned conformations
 

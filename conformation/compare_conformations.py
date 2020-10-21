@@ -58,6 +58,8 @@ def reference_comparison(mol_reference: rdchem.Mol, reference_energies: List, mo
 
     if abs(min(reference_energies) - min(comparison_energies)) < args.energy_difference_threshold:
         results.append(True)
+    else:
+        results.append(False)
 
     comparison_results = []
     for comparison_threshold in args.energy_recovery_fraction:

@@ -1,4 +1,5 @@
 """ Plotting of conformation distributions. """
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -17,6 +18,7 @@ class Args(Tap):
     System arguments.
     """
     data_path: str  # Path to RDKit binary file containing conformations
+    subsample_frequency: int = 1  # Frequency at which to compute sample information
     save_dir: str  # Path to directory containing output files
 
 
@@ -27,7 +29,7 @@ def analyze_distributions(args: Args) -> None:
     """
     os.makedirs(args.save_dir)
 
-    # Load molecule
+    print("Loading molecule...")
     # noinspection PyUnresolvedReferences
     mol = Chem.Mol(open(args.data_path, "rb").read())
 
@@ -65,14 +67,15 @@ def analyze_distributions(args: Args) -> None:
 
     angles = [[] for _ in range(len(rotatable_bonds))]
     for i in tqdm(range(mol.GetNumConformers())):
-        c = mol.GetConformer(i)
-        for j in range(len(rotatable_bonds)):
-            angles[j].append(rdMolTransforms.GetDihedralRad(c, atom_indices[j][0], atom_indices[j][1],
-                                                            atom_indices[j][2], atom_indices[j][3]))
+        if i % args.subsample_frequency == 0:
+            c = mol.GetConformer(i)
+            for j in range(len(rotatable_bonds)):
+                angles[j].append(rdMolTransforms.GetDihedralRad(c, atom_indices[j][0], atom_indices[j][1],
+                                                                atom_indices[j][2], atom_indices[j][3]))
 
     for i, bond in enumerate(rotatable_bonds):
         fig, ax = plt.subplots()
-        sns.histplot(angles[i], ax=ax, bins=np.arange(min(angles[i]) - 1., max(angles[i]) + 1., 0.1))
+        sns.histplot(angles[i], ax=ax, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1))
         ax.set_xlabel("Angle (radians)")
         ax.set_ylabel("Count")
         ax.figure.savefig(os.path.join(args.save_dir, f'rotatable-bond-{bond[0]}-{bond[1]}-distribution.png'))

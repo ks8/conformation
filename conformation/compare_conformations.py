@@ -6,15 +6,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
-from typing import List, Tuple
+from typing import List
 from typing_extensions import Literal
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdchem, rdMolAlign, rdmolfiles, rdForceFieldHelpers
+from rdkit.Chem import AllChem, rdchem
 import scipy.optimize
 import seaborn as sns
 # noinspection PyPackageRequirements
 from tap import Tap
+from tqdm import tqdm
 
 from conformation.run_rmsd_pruning import compute_rmsd, rmsd_pruning
 
@@ -32,7 +33,6 @@ class Args(Tap):
     rmsd_pruning_threshold: float = 0.01  # Error tolerance for pruning reference set energies (group_comparison=True)
     rmsd_func: Literal["GetBestRMS", "AlignMol"] = "GetBestRMS"  # RMSD computation options
     rmsd_recovery_fraction: List[float] = [0.1]  # Bottom fraction of energies to check for recovery via RMSD
-    energy_recovery_fraction: List[float] = [0.5]  # Bottom fraction of energies to check for recovery via energy
     rmsd_threshold: List[float] = [0.5]  # RMSD threshold applied
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD
     temp: float = 300.0  # Temperature at which to compute Boltzmann probabilities.
@@ -54,14 +54,12 @@ def boltzmann_probability(energy: float, k_b: float, T: float, Z: float) -> floa
 
 # noinspection PyUnresolvedReferences
 def reference_comparison(mol_reference: rdchem.Mol, reference_energies: List, unique_reference_energies: List,
-                         reference_probabilities: List, mol_comparison: rdchem.Mol, comparison_id: int,
-                         args: Args) -> Tuple[List, List]:
+                         mol_comparison: rdchem.Mol, comparison_id: int, args: Args) -> List:
     """
     Compare two sets of conformations.
     :param mol_reference: Reference conformations.
     :param reference_energies: Reference energies.
     :param unique_reference_energies: Unique reference energies.
-    :param reference_probabilities: Reference probabilities.
     :param mol_comparison: Comparison conformations.
     :param comparison_id: ID number for the comparison set.
     :param args: System arguments.
@@ -84,52 +82,28 @@ def reference_comparison(mol_reference: rdchem.Mol, reference_energies: List, un
     else:
         results.append(False)
 
-    comparison_results = []
-    for comparison_threshold in args.energy_recovery_fraction:
-        sorted_indices = sorted(range(len(unique_reference_energies)), key=lambda k: unique_reference_energies[k])
-        fraction_indices = sorted_indices[:math.ceil(comparison_threshold * len(sorted_indices))]
-
-        # Compute energy difference cost matrix between reference conformations and comparison conformations
-        cost_matrix = np.zeros([len(fraction_indices), len(comparison_energies)])
-        for index, i in enumerate(fraction_indices):
-            for j in range(len(comparison_energies)):
-                energy_diff = abs(comparison_energies[j] - unique_reference_energies[i])
-                cost_matrix[index][j] = energy_diff
-        opt = scipy.optimize.linear_sum_assignment(cost_matrix)
-
-        num = 0
-        for i in range(opt[0].shape[0]):
-            if cost_matrix[opt[0][i], opt[1][i]] < args.energy_difference_threshold:
-                num += 1
-        comparison_results.append((num / cost_matrix.shape[0]) * 100.0)
-    results.append(comparison_results)
-
     # Produce information for energy level plotting
-    for comparison_threshold in [1.0]:
-        sorted_indices = sorted(range(len(unique_reference_energies)), key=lambda k: unique_reference_energies[k])
-        fraction_indices = sorted_indices[:math.ceil(comparison_threshold * len(sorted_indices))]
+    cost_matrix = np.zeros([len(unique_reference_energies), len(comparison_energies)])
+    for i in range(len(unique_reference_energies)):
+        for j in range(len(comparison_energies)):
+            energy_diff = abs(comparison_energies[j] - unique_reference_energies[i])
+            cost_matrix[i][j] = energy_diff
+    opt = scipy.optimize.linear_sum_assignment(cost_matrix)
 
-        # Compute energy difference cost matrix between reference conformations and comparison conformations
-        cost_matrix = np.zeros([len(fraction_indices), len(comparison_energies)])
-        for index, i in enumerate(fraction_indices):
-            for j in range(len(comparison_energies)):
-                energy_diff = abs(comparison_energies[j] - unique_reference_energies[i])
-                cost_matrix[index][j] = energy_diff
-        opt = scipy.optimize.linear_sum_assignment(cost_matrix)
+    discovered_energies = []
+    discovered_indices = []
+    for i in range(opt[0].shape[0]):
+        if cost_matrix[opt[0][i], opt[1][i]] < args.energy_difference_threshold:
+            discovered_energies.append([unique_reference_energies[opt[0][i]], "Found",
+                                        args.group_conf_labels[comparison_id]])
+            discovered_indices.append(opt[0][i])
+    for i in range(len(unique_reference_energies)):
+        if i not in discovered_indices:
+            discovered_energies.append([unique_reference_energies[i], "Not Found",
+                                        args.group_conf_labels[comparison_id]])
+    results.append(discovered_energies)
 
-        discovered_energies = []
-        discovered_indices = []
-        for i in range(opt[0].shape[0]):
-            if cost_matrix[opt[0][i], opt[1][i]] < args.energy_difference_threshold:
-                discovered_energies.append([unique_reference_energies[fraction_indices[opt[0][i]]], "Found",
-                                            args.group_conf_labels[comparison_id], reference_probabilities[i]])
-                discovered_indices.append(fraction_indices[opt[0][i]])
-        for i in range(len(unique_reference_energies)):
-            if i not in discovered_indices:
-                discovered_energies.append([unique_reference_energies[i], "Not Found",
-                                            args.group_conf_labels[comparison_id], reference_probabilities[i]])
-
-    # Sort the energies and take the relevant fraction
+    # Produce information for RMSD threshold comparisons
     for fraction in args.rmsd_recovery_fraction:
         sorted_indices = sorted(range(len(reference_energies)), key=lambda k: reference_energies[k])
         fraction_indices = sorted_indices[:math.ceil(fraction * len(sorted_indices))]
@@ -156,10 +130,10 @@ def reference_comparison(mol_reference: rdchem.Mol, reference_energies: List, un
 
         results.append(comparison_results)
 
-    return results, discovered_energies
+    return results
 
 
-def compare_conformations(args: Args, logger: Logger):
+def compare_conformations(args: Args, logger: Logger) -> None:
     """
     Compare two sets of conformations generated by different conformational search programs.
     :param args: System arguments.
@@ -198,7 +172,7 @@ def compare_conformations(args: Args, logger: Logger):
         for i in range(len(res)):
             reference_energies.append(res[i][1])
 
-        # Remove clear duplicates from the reference set via RMSD pruning
+        debug(f'RMSD pruning of reference set...')
         mol_reference = rmsd_pruning(mol_reference, reference_energies, args.rmsd_func, args.rmsd_remove_Hs,
                                      args.energy_difference_threshold, args.rmsd_pruning_threshold)
 
@@ -209,49 +183,22 @@ def compare_conformations(args: Args, logger: Logger):
         # noinspection PyUnresolvedReferences
         mol_reference = Chem.Mol(open(args.reference_path, "rb").read())
 
-    debug(f'Computing reference energies of pruned reference set...')
+    debug(f'Computing finalized reference energies...')
     reference_energies = []
     res = AllChem.MMFFOptimizeMoleculeConfs(mol_reference, maxIters=0, numThreads=0)
     for i in range(len(res)):
         reference_energies.append(res[i][1])
-    #
-    # print(reference_energies[69], reference_energies[88])
-    # mol1 = copy.deepcopy(mol_reference)
-    # mol1.RemoveAllConformers()
-    # mol2 = copy.deepcopy(mol_reference)
-    # mol2.RemoveAllConformers()
-    # tmp = copy.deepcopy(mol_reference)
-    # c = tmp.GetConformer(69)
-    # c.SetId(0)
-    # mol1.AddConformer(c)
-    # c = tmp.GetConformer(88)
-    # c.SetId(0)
-    # mol2.AddConformer(c)
-    # for mol in [mol1, mol2]:
-    #     mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol)
-    #     mmff_f = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mmff_p)
-    #     energy = mmff_f.CalcEnergy()
-    #     print(energy)
-    # mol1 = Chem.RemoveHs(mol1)
-    # mol2 = Chem.RemoveHs(mol2)
-    # print(rdMolAlign.GetBestRMS(mol1, mol2))
-    # print(rdmolfiles.MolToPDBBlock(mol1), file=open("molecule_1.pdb", "w+"))
-    # print(rdmolfiles.MolToPDBBlock(mol2), file=open("molecule_2.pdb", "w+"))
-    # for mol in [mol1, mol2]:
-    #     mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol)
-    #     mmff_f = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mmff_p)
-    #     energy = mmff_f.CalcEnergy()
-    #     print(energy)
-    #
-    # exit()
 
-    debug(f'Computing probability hierarchy based on reference energies...')
+    debug(f'Computing conformation probability hierarchy based on reference energies...')
     reference_probabilities = []
     # noinspection PyPep8Naming
     Z = 0
+    # First, compute the partition function
     for i in range(len(reference_energies)):
-        energy = reference_energies[i] * (1000.0 * 4.184 / avogadro)
+        energy = reference_energies[i] * (1000.0 * 4.184 / avogadro)  # Convert from kcal/mol to Joules
         Z += math.exp(-energy/(k_b * args.temp * 4.184))
+
+    # Second, compute the Boltzmann probabilities
     for i in range(len(reference_energies)):
         energy = reference_energies[i] * (1000.0 * 4.184 / avogadro)
         reference_probabilities.append(boltzmann_probability(energy, k_b, args.temp, Z))
@@ -272,75 +219,46 @@ def compare_conformations(args: Args, logger: Logger):
 
     reference_energy_minimum = min(reference_energies)
     debug(f'The reference set global energy minimum is: {reference_energy_minimum} kcal/mol')
-    debug(f'The reference energy fractions checked for energy recovery are: '
-          f'{args.energy_recovery_fraction}')
-
-    energy_recovery_values = []
-    for comparison_threshold in args.energy_recovery_fraction:
-        sorted_indices = sorted(range(len(unique_reference_energies)), key=lambda m: unique_reference_energies[m])
-        fraction_indices = sorted_indices[:math.ceil(comparison_threshold * len(sorted_indices))]
-        fraction_energies = [unique_reference_energies[i] for i in fraction_indices]
-        energy_recovery_values.append(fraction_energies[-1] - reference_energy_minimum)
-
-    debug(f'The corresponding energy deviations from global minimum are (kcal/mol): {energy_recovery_values}')
     debug(f'The reference energy fractions checked for RMSD recovery are: {args.rmsd_recovery_fraction}')
-
-    energy_recovery_values = []
-    for comparison_threshold in args.rmsd_recovery_fraction:
-        sorted_indices = sorted(range(len(reference_energies)), key=lambda m: reference_energies[m])
-        fraction_indices = sorted_indices[:math.ceil(comparison_threshold * len(sorted_indices))]
-        fraction_energies = [reference_energies[i] for i in fraction_indices]
-        energy_recovery_values.append(fraction_energies[-1] - reference_energy_minimum)
-
-    debug(f'The corresponding energy deviations from global minimum are (kcal/mol): {energy_recovery_values}')
     debug(f'The RMSD levels checked for recovery are (Angstrom): {args.rmsd_threshold}')
 
-    combined_results = []
+    # Create lists holding results info for plotting
     energy_plotting = []
-    rmsd_plotting = []
-    for i in range(len(conformation_sets)):
-        results, discovered_energies = reference_comparison(mol_reference, reference_energies,
-                                                            unique_reference_energies, unique_reference_probabilities,
-                                                            conformation_sets[i], i, args)
-        expanded_results = []
-        debug("\n")
-        debug(f'Results for conformation set {i}: ')
-        debug(f'Number of conformations: {results[0]}')
-        expanded_results.append(results[0])
-        debug(f'Global energy minimum recovered?: {results[1]}')
-        expanded_results.append(int(results[1]))
-        debug(f'Percent energy recovery: {results[2]}')
-        for j in results[2]:
-            expanded_results.append(j)
+    rmsd_results = []
 
-        rmsd_plotting_results = [args.group_conf_labels[i], np.zeros([len(args.rmsd_threshold),
-                                                                      len(args.rmsd_recovery_fraction)])]
-        for index, j in enumerate(args.rmsd_recovery_fraction):
-            debug(f'Percent RMSD recovery for bottom {j*100.0}% of energies: {results[3 + index]}')
-            for index2, k in enumerate(results[3 + index]):
-                expanded_results.append(k)
-                rmsd_plotting_results[1][index2][index] = k
-        debug("\n")
-        combined_results.append(expanded_results)
+    # Extract results for each conformation set
+    debug(f'Comparing to reference set...')
+    for i in tqdm(range(len(conformation_sets))):
+        results = reference_comparison(mol_reference, reference_energies, unique_reference_energies,
+                                       conformation_sets[i], i, args)
+        energy_plotting += results[2]
+        for index1, j in enumerate(args.rmsd_recovery_fraction):
+            for index2, k in enumerate(results[3 + index1]):
+                rmsd_results.append([args.rmsd_threshold[index2], j, k, args.group_conf_labels[i]])
 
-        rmsd_plotting.append(rmsd_plotting_results)
-        energy_plotting += discovered_energies
+    # Plot RMSD results and save dataframe
+    df = pd.DataFrame(rmsd_results)
+    df = df.rename(columns={0: 'RMSD Threshold', 1: 'Energy Fraction', 2: 'Percent Recovery', 3: 'Method'})
+    df.to_pickle(os.path.join(args.save_dir, "rmsd-results.pkl"))
 
+    sns.set_theme()
     for i in range(len(args.rmsd_threshold)):
+        df_tmp = df[df['RMSD Threshold'] == args.rmsd_threshold[i]]
         fig, ax = plt.subplots()
-        for j in range(len(rmsd_plotting)):
-            ax.plot(args.rmsd_recovery_fraction, rmsd_plotting[j][1][i], label=args.group_conf_labels[j])
-        ax.set_xlim(max(args.rmsd_recovery_fraction) + 0.1, min(args.rmsd_recovery_fraction) - 0.1)
-        plt.legend()
+        sns.lineplot(x='Energy Fraction', y='Percent Recovery', hue='Method', data=df_tmp)
         ax.set_xlabel("Fraction of lowest energy conformations")
         ax.set_ylabel("Percent structures recovered")
-        ax.set_ylim((0, 100.5))
-        ax.figure.savefig(os.path.join(args.save_dir, f'rmsd-recovery-{args.rmsd_threshold[i]}.png'))
+        ax.set_xlim(max(args.rmsd_recovery_fraction), min(args.rmsd_recovery_fraction))
+        ax.set_ylim((0, 101))
+        ax.figure.savefig(os.path.join(args.save_dir, f'rmsd-recovery-{args.rmsd_threshold[i]}-test.png'))
         plt.clf()
         plt.close()
 
+    # Plot energy results and save dataframe
+    sns.set_style('whitegrid')
     df = pd.DataFrame(energy_plotting)
-    df = df.rename(columns={0: 'Energy', 1: 'Discovery', 2: 'Method', 3: 'Probability'})
+    df = df.rename(columns={0: 'Energy', 1: 'Discovery', 2: 'Method'})
+    df.to_pickle(os.path.join(args.save_dir, "energy-results.pkl"))
     try:
         fig = sns.catplot(x='Method', y='Energy', hue='Discovery', kind='swarm', data=df, s=5)
     except UserWarning:
@@ -349,9 +267,21 @@ def compare_conformations(args: Args, logger: Logger):
     plt.clf()
     plt.close()
 
+    # Compute energy below which 99.9% of conformation probability mass lies below
+    cumsum = 0
+    bulk = 0
+    for i in range(len(reference_probabilities)):
+        cumsum += reference_probabilities[i]
+        if cumsum >= 0.999:
+            bulk = reference_energies[i]
+            break
+
+    # Plot probabilities
     ax = sns.scatterplot(x=reference_energies, y=reference_probabilities, color="b")
     ax.set_xlabel("Energy (kcal/mol)")
     ax.set_ylabel("Probability")
+    plt.axvline(x=bulk, linestyle="--", linewidth=0.5, color='r', label="99.9% probability mass")
+    plt.legend()
     ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))
     plt.clf()
     plt.close()

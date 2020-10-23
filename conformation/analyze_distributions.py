@@ -18,6 +18,7 @@ class Args(Tap):
     System arguments.
     """
     data_path: str  # Path to RDKit binary file containing conformations
+    num_energy_decimals: int = 3  # Number of energy decimals used for computing empirical minimized energy probability
     subsample_frequency: int = 1  # Frequency at which to compute sample information
     save_dir: str  # Path to directory containing output files
 
@@ -39,11 +40,20 @@ def analyze_distributions(args: Args) -> None:
     for i in range(len(res)):
         energies.append(res[i][1])
 
-    # Plot total energies
+    # Plot energy histogram
+    # NOTE: defining the bins is useful because sometimes automatic bin placement takes forever
+    sns.set_theme()
     fig, ax = plt.subplots()
     sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
     ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Count")
+    ax.figure.savefig(os.path.join(args.save_dir, "energy-histogram.png"))
+    plt.clf()
+    plt.close()
+
+    # Plot energy distribution
+    fig, ax = plt.subplots()
+    sns.histplot(energies, ax=ax, stat='density', kde=True, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
+    ax.set_xlabel("Energy (kcal/mol)")
     ax.figure.savefig(os.path.join(args.save_dir, "energy-distribution.png"))
     plt.clf()
     plt.close()
@@ -81,3 +91,53 @@ def analyze_distributions(args: Args) -> None:
         ax.figure.savefig(os.path.join(args.save_dir, f'rotatable-bond-{bond[0]}-{bond[1]}-distribution.png'))
         plt.clf()
         plt.close()
+
+    print("Computing minimized energies...")
+    res = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=200, numThreads=0)
+    energies = []
+    for i in range(len(res)):
+        energies.append(res[i][1])
+
+    # Plot energy histogram
+    # NOTE: defining the bins is useful because sometimes automatic bin placement takes forever
+    fig, ax = plt.subplots()
+    sns.histplot(energies, ax=ax, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.figure.savefig(os.path.join(args.save_dir, "minimized-energy-histogram.png"))
+    plt.clf()
+    plt.close()
+
+    # Plot energy distribution
+    fig, ax = plt.subplots()
+    sns.histplot(energies, ax=ax, stat='density', kde=True, bins=np.arange(min(energies) - 1., max(energies) + 1., 0.1))
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.figure.savefig(os.path.join(args.save_dir, "minimized-energy-distribution.png"))
+    plt.clf()
+    plt.close()
+
+    # Compute empirical energy probabilities
+    energy_counts = dict()
+    rounded_energies = []
+    for en in energies:
+        rounded_energies.append(round(en, args.num_energy_decimals))
+
+    for en in rounded_energies:
+        if en in energy_counts:
+            energy_counts[en] += 1
+        else:
+            energy_counts[en] = 1
+
+    probabilities = []
+    energies = []
+    num_energies = len(rounded_energies)
+    for item in energy_counts:
+        energies.append(item)
+        probabilities.append(energy_counts[item] / num_energies)
+
+    # Plot probabilities
+    ax = sns.scatterplot(x=energies, y=probabilities, color="b")
+    ax.set_xlabel("Energy (kcal/mol)")
+    ax.set_ylabel("Energy Probability")
+    ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))
+    plt.clf()
+    plt.close()

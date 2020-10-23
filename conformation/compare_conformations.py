@@ -279,7 +279,7 @@ def compare_conformations(args: Args, logger: Logger) -> None:
     # Plot probabilities
     ax = sns.scatterplot(x=reference_energies, y=reference_probabilities, color="b")
     ax.set_xlabel("Energy (kcal/mol)")
-    ax.set_ylabel("Probability")
+    ax.set_ylabel("Conformation Probability")
     plt.axvline(x=bulk, linestyle="--", linewidth=0.5, color='r', label="99.9% probability mass")
     plt.legend()
     ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))

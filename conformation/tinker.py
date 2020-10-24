@@ -1,6 +1,7 @@
 """ Run Tinker MD simulations and extract conformations. """
 import numpy as np
 import os
+import time
 
 # noinspection PyUnresolvedReferences
 from rdkit import Chem
@@ -45,6 +46,7 @@ def tinker(args: Args) -> None:
     os.makedirs(args.save_dir)
     os.makedirs(os.path.join(args.save_dir, "properties"))
     os.makedirs(os.path.join(args.save_dir, "distmat"))
+    os.makedirs(os.path.join(args.save_dir, "timing"))
 
     # Keep track of any molecules that have issues
     failed_molecules = []
@@ -103,6 +105,7 @@ def tinker(args: Args) -> None:
                 mol.RemoveAllConformers()  # Clear existing conformers
 
                 # Run MD simulations and conformation extraction for each RDKit initial configuration
+                start_time = time.time()
                 for j in range(args.num_starts):
                     # Run the MD simulation
                     try:
@@ -183,6 +186,9 @@ def tinker(args: Args) -> None:
                                 line = tmp.readline()
                     except FileNotFoundError:
                         continue
+                end_time = time.time()
+                with open(os.path.join(args.save_dir, "timing", molecule_name + ".txt"), 'a') as o:
+                    o.write(f'Total Time (s): {end_time - start_time}')
 
                 # Print the conformations to a binary file
                 bin_str = mol.ToBinary()

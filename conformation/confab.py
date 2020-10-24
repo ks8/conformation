@@ -3,6 +3,7 @@ https://open-babel.readthedocs.io/en/latest/3DStructureGen/multipleconformers.ht
 from logging import Logger
 import os
 from typing_extensions import Literal
+import time
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdmolfiles
@@ -64,11 +65,14 @@ def confab(args: Args, logger: Logger):
         os.system("obabel -ismi " + os.path.join(args.save_dir, "tmp.smi") + " -O " +
                   os.path.join(args.save_dir, "tmp.sdf") + " --gen3D")
 
+    start_time = time.time()
     # Generate conformers using Confab
     debug(f'Generating conformers...')
     os.system("obabel " + os.path.join(args.save_dir, "tmp.sdf") + " -O " +
               os.path.join(args.save_dir, "conformations.sdf") + " --confab --rcutoff " + str(args.rcutoff) +
               " --ecutoff " + str(args.ecutoff) + " --conf " + str(args.conf) + " --verbose")
+    end_time = time.time()
+    debug(f'Total Time (s): {end_time - start_time}')
 
     # Load conformations into RDKit and save
     debug(f'Loading conformations into RDKit...')

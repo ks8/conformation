@@ -3,6 +3,7 @@ import copy
 from logging import Logger
 import math
 import os
+import time
 from typing import List, Tuple
 
 import random
@@ -167,6 +168,7 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
     # Run MC steps
     debug(f'Running MC steps...')
     num_accepted = 0
+    start_time = time.time()
     for step in tqdm(range(args.num_steps)):
         if args.cartesian:
             proposed_sample = move_particle(current_sample, args)
@@ -205,7 +207,8 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
                 acceptance_percentage = float(num_accepted)/float(step + 1)*100.0
             debug(f'Steps completed: {step}, num conformations accepted: {len(conformation_molecules)}, '
                   f'acceptance percentage: {acceptance_percentage}')
-
+    end_time = time.time()
+    debug(f'Total Time (s): {end_time - start_time}')
     debug(f'Number of conformations accepted: {len(conformation_molecules)}')
     debug(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
 

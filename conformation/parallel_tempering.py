@@ -5,6 +5,7 @@ import math
 import numpy as np
 import os
 import random
+import time
 from typing import List
 
 from rdkit import Chem
@@ -81,6 +82,7 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
     all_energies = [energy]
 
     debug(f'Running HMC steps...')
+    start_time = time.time()
     swap = [0]
     num_internal_accepted = [0]*len(args.temperatures)
     num_swap_accepted = [0]*(len(args.temperatures) - 1)
@@ -166,7 +168,8 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
             else:
                 debug(f'% Moves accepted for swap: '
                       f'{float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
-
+    end_time = time.time()
+    debug(f'Total Time (s): {end_time - start_time}')
     debug(f'Number of conformations identified: {len(conformation_molecules)}')
     for i in range(len(args.temperatures)):
         debug(f'% Moves accepted for temperature {args.temperatures[i]}: '

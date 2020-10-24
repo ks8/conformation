@@ -5,6 +5,7 @@ import math
 import numpy as np
 import os
 import random
+import time
 from typing import Tuple
 
 from rdkit import Chem
@@ -29,6 +30,7 @@ class Args(Tap):
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of HMC steps
     subsample_frequency: int = 1  # Frequency at which configurations are saved from MH steps
+    log_frequency: int = 100  # Log frequency
     save_dir: str  # Path to directory containing output files
 
 
@@ -188,6 +190,7 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
     all_energies = [energy]
 
     debug(f'Running HMC steps...')
+    start_time = time.time()
     num_accepted = 0
     for step in tqdm(range(args.num_steps)):
         accepted, current_q, current_energy = hmc_step(current_q, args.temp, k_b, avogadro, mass, num_atoms,
@@ -201,6 +204,11 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
             all_conformation_molecules.append(current_q)
             all_energies.append(current_energy)
 
+        if step % args.log_frequency == 0:
+            debug(f'Number of conformations identified: {len(conformation_molecules)}')
+            debug(f'% Moves accepted: {float(num_accepted) / float(step + 1) * 100.0}')
+    end_time = time.time()
+    debug(f'Total Time(s): {end_time - start_time}')
     debug(f'Number of conformations identified: {len(conformation_molecules)}')
     debug(f'% Moves accepted: {float(num_accepted) / float(args.num_steps) * 100.0}')
 

@@ -20,8 +20,7 @@ def run_analyze_distributions() -> None:
     """
     for dir_path in conformation_directories:
         f = os.path.join(dir_path, file_name)
-        save_dir = dir_path + "-distributions"
-        os.system(f'python analyze_distributions.py --data_path={f} --save_dir={save_dir}')
+        os.system(f'python analyze_distributions.py --data_path={f} --save_dir={dir_path}')
 
 
 if __name__ == '__main__':

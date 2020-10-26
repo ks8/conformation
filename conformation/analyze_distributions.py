@@ -28,7 +28,7 @@ def analyze_distributions(args: Args) -> None:
     Plotting of conformation distributions.
     :return: None.
     """
-    os.makedirs(args.save_dir)
+    os.makedirs(args.save_dir, exist_ok=True)
 
     print("Loading molecule...")
     # noinspection PyUnresolvedReferences

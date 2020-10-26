@@ -36,6 +36,7 @@ class Args(Tap):
     rmsd_threshold: List[float] = [0.5]  # RMSD threshold applied
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD
     temp: float = 300.0  # Temperature at which to compute Boltzmann probabilities.
+    energy_plot_size: float = 5  # Set marker size for energy value plot.
     save_dir: str  # Save path for output files
 
 
@@ -259,10 +260,7 @@ def compare_conformations(args: Args, logger: Logger) -> None:
     df = pd.DataFrame(energy_plotting)
     df = df.rename(columns={0: 'Energy', 1: 'Discovery', 2: 'Method'})
     df.to_pickle(os.path.join(args.save_dir, "energy-results.pkl"))
-    try:
-        fig = sns.catplot(x='Method', y='Energy', hue='Discovery', kind='swarm', data=df, s=5)
-    except UserWarning:
-        fig = sns.catplot(x='Method', y='Energy', hue='Discovery', data=df, s=2)
+    fig = sns.catplot(x='Method', y='Energy', hue='Discovery', kind='swarm', data=df, s=args.energy_plot_size)
     fig.savefig(os.path.join(args.save_dir, "energy-values.png"))
     plt.clf()
     plt.close()
@@ -280,7 +278,7 @@ def compare_conformations(args: Args, logger: Logger) -> None:
     ax = sns.scatterplot(x=reference_energies, y=reference_probabilities, color="b")
     ax.set_xlabel("Energy (kcal/mol)")
     ax.set_ylabel("Conformation Probability")
-    plt.axvline(x=bulk, linestyle="--", linewidth=0.5, color='r', label="99.9% probability mass")
+    plt.axvline(x=bulk, linestyle="--", linewidth=0.5, color='r', label=f'99.9% probability at {bulk:.2f}')
     plt.legend()
     ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))
     plt.clf()

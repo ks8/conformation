@@ -37,6 +37,7 @@ class Args(Tap):
     rmsd_remove_Hs: bool = False  # Whether or not to remove Hydrogen when computing RMSD
     temp: float = 300.0  # Temperature at which to compute Boltzmann probabilities.
     energy_plot_size: float = 5  # Set marker size for energy value plot.
+    reverse_energy_plot_axes: bool = False  # Whether or not to put categories on the y-axis.
     save_dir: str  # Save path for output files
 
 
@@ -251,7 +252,7 @@ def compare_conformations(args: Args, logger: Logger) -> None:
         ax.set_ylabel("Percent structures recovered")
         ax.set_xlim(max(args.rmsd_recovery_fraction), min(args.rmsd_recovery_fraction))
         ax.set_ylim((0, 101))
-        ax.figure.savefig(os.path.join(args.save_dir, f'rmsd-recovery-{args.rmsd_threshold[i]}-test.png'))
+        ax.figure.savefig(os.path.join(args.save_dir, f'rmsd-recovery-{args.rmsd_threshold[i]}.png'))
         plt.clf()
         plt.close()
 
@@ -260,7 +261,10 @@ def compare_conformations(args: Args, logger: Logger) -> None:
     df = pd.DataFrame(energy_plotting)
     df = df.rename(columns={0: 'Energy', 1: 'Discovery', 2: 'Method'})
     df.to_pickle(os.path.join(args.save_dir, "energy-results.pkl"))
-    fig = sns.catplot(x='Method', y='Energy', hue='Discovery', kind='swarm', data=df, s=args.energy_plot_size)
+    if args.reverse_energy_plot_axes:
+        fig = sns.catplot(x='Energy', y='Method', hue='Discovery', kind='swarm', data=df, s=args.energy_plot_size)
+    else:
+        fig = sns.catplot(x='Method', y='Energy', hue='Discovery', kind='swarm', data=df, s=args.energy_plot_size)
     fig.savefig(os.path.join(args.save_dir, "energy-values.png"))
     plt.clf()
     plt.close()

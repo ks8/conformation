@@ -9,6 +9,7 @@ file_name = "all-conformations.bin"
 
 # System arguments
 # data_path: str  # Path to RDKit binary file containing conformations
+# num_energy_decimals: int = 3  # Number of energy decimals used for computing empirical minimized energy probability
 # subsample_frequency: int = 1  # Frequency at which to compute sample information
 # save_dir: str  # Path to directory containing output files
 

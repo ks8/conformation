@@ -23,7 +23,8 @@ class Args(Tap):
     num_steps: int = 10  # Number of search steps
     search_type: Literal['LMCS', 'MCMM'] = 'MCMM'  # Search type
     schrodinger_root: str = "/data/swansonk1/schrodinger2020-3"  # Path to Schrodinger install
-    timeout = 3600*6  # Timeout for subprocess.check_call
+    init_minimize: bool = False  # Whether or not to FF-minimize the initial ETKDG-generated conformation
+    timeout: int = 3600*6  # Timeout for subprocess.check_call
     save_dir: str  # Directory path for output files
 
 
@@ -228,6 +229,8 @@ def macromodel(args: Args, logger: Logger):
     mol = Chem.MolFromSmiles(args.smiles)
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol)
+    if args.init_minimize:
+        AllChem.MMFFOptimizeMoleculeConfs(mol)
 
     debug(f'Starting conformational search...')
     start_time = time.time()

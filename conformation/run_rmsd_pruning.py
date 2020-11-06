@@ -78,6 +78,9 @@ def rmsd_pruning(mol: rdchem.Mol, energies: List, rmsd_func: Literal["GetBestRMS
                     rmsd = compute_rmsd(rmsd_func, mol, mol, j, i)
                 if rmsd < rmsd_threshold:
                     unique = False
+                    # Preserve lower energy conformation
+                    if energies[i] < energies[j]:
+                        unique_conformer_indices[unique_conformer_indices.index(j)] = i
                     break
         if unique:
             unique_conformer_indices.append(i)

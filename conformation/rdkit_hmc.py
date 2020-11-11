@@ -11,6 +11,7 @@ from typing import Tuple
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdchem, rdForceFieldHelpers
 from rdkit.Chem.Lipinski import RotatableBondSmarts
+from rdkit.ForceField import rdForceField
 # noinspection PyUnresolvedReferences
 from rdkit.Geometry.rdGeometry import Point3D
 # noinspection PyPackageRequirements
@@ -35,16 +36,17 @@ class Args(Tap):
 
 
 # noinspection PyUnresolvedReferences
-def calc_energy_grad(mol: rdchem.Mol) -> Tuple[float, np.ndarray]:
+def calc_energy_grad(pos: np.ndarray, force_field: rdForceField.ForceField) -> Tuple[float, np.ndarray]:
     """
     Compute MMFF energy and gradient.
+    :param pos: Atomic coordinates.
+    :param force_field: RDKit force field.
     :return: MMFF energy and gradient, where the energy is kcal/mol and the gradient is kcal/mol/Angstrom.
     """
-    mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol)
-    mmff_f = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mmff_p)
+    pos = tuple(pos.flatten())
 
-    energy = mmff_f.CalcEnergy()
-    grad = mmff_f.CalcGrad()
+    energy = force_field.CalcEnergy(pos)
+    grad = force_field.CalcGrad(pos)
     grad = np.reshape(np.array(grad), [int(len(grad)/3), 3])
 
     return energy, grad
@@ -64,11 +66,13 @@ def maxwell_boltzmann(temp: float, k_b: float, mass: float) -> np.ndarray:
 
 
 # noinspection PyUnresolvedReferences,PyPep8Naming
-def hmc_step(current_q: rdchem.Mol, temp: float, k_b: float, avogadro: float, mass: np.ndarray, num_atoms: int,
-             epsilon: float, L: int) -> Tuple[bool, rdchem.Mol, float]:
+def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: float, k_b: float,
+             avogadro: float, mass: np.ndarray, num_atoms: int, epsilon: float, L: int) -> \
+        Tuple[bool, rdchem.Mol, float]:
     """
     Run a single Hamiltonian Monte Carlo step.
     :param current_q: Current configuration as specified in an RDKit molecule object.
+    :param force_field: RDKit molecule object force field.
     :param temp: Temperature.
     :param k_b: Boltzmann's constant.
     :param avogadro: Avogadro's number.
@@ -78,8 +82,10 @@ def hmc_step(current_q: rdchem.Mol, temp: float, k_b: float, avogadro: float, ma
     :param L: Number of leapfrog steps.
     :return: Whether or not trial move is accepted, the updated configuration, and the updated energy.
     """
-    # Set the current position variables
+    # Set the position variables
+    current_pos = current_q.GetConformer().GetPositions()
     q = copy.deepcopy(current_q)
+    pos = q.GetConformer().GetPositions()
 
     # Generate random momentum values by sampling velocities from the Maxwell-Boltzmann distribution
     # Momentum is in kg * m / s
@@ -94,7 +100,7 @@ def hmc_step(current_q: rdchem.Mol, temp: float, k_b: float, avogadro: float, ma
 
     # Make a half-step for momentum at the beginning
     # Note: the gradient is in kcal/mol/Angstrom, so we convert it to Newtons: 1 kg * m / s^2
-    _, grad_u = calc_energy_grad(q)
+    _, grad_u = calc_energy_grad(pos, force_field)
     grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
     p = p - epsilon * grad_u / 2.
 
@@ -113,12 +119,12 @@ def hmc_step(current_q: rdchem.Mol, temp: float, k_b: float, avogadro: float, ma
 
         # Make a full step for the momentum, except at the end of the trajectory
         if i != L - 1:
-            energy, grad_u = calc_energy_grad(q)
+            energy, grad_u = calc_energy_grad(pos, force_field)
             grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
             p = p - epsilon * grad_u
 
     # Make a half step for momentum at the end
-    _, grad_u = calc_energy_grad(q)
+    _, grad_u = calc_energy_grad(pos, force_field)
     grad_u *= (1000.0 * 4.184 * 1e10 / avogadro)
     p = p - epsilon * grad_u / 2.
 
@@ -127,11 +133,11 @@ def hmc_step(current_q: rdchem.Mol, temp: float, k_b: float, avogadro: float, ma
 
     # Evaluate potential and kinetic energies at start and end of the trajectory
     # Energies are in Joules
-    current_u, _ = calc_energy_grad(current_q)
+    current_u, _ = calc_energy_grad(current_pos, force_field)
     current_u *= (1000.0 * 4.184 / avogadro)
     current_k = sum([((np.linalg.norm(current_p[i])) ** 2 / (2. * mass[i])) for i in
                      range(num_atoms)])
-    proposed_u, _ = calc_energy_grad(q)
+    proposed_u, _ = calc_energy_grad(pos, force_field)
     proposed_u *= (1000.0 * 4.184 / avogadro)
     proposed_k = sum([((np.linalg.norm(p[i])) ** 2 / (2. * mass[i])) for i in
                       range(num_atoms)])
@@ -179,11 +185,15 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
     AllChem.MMFFOptimizeMoleculeConfs(current_q, maxIters=args.num_minimization_iters)
     num_atoms = current_q.GetNumAtoms()
 
+    # Compute force field information
+    mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(current_q)
+    force_field = rdForceFieldHelpers.MMFFGetMoleculeForceField(current_q, mmff_p)
+
     # Masses in kg
     mass = np.array([mol.GetAtomWithIdx(i).GetMass()/(1000.*avogadro) for i in range(num_atoms)])
 
     # Add the first conformation to the list
-    energy, _ = calc_energy_grad(current_q)
+    energy, _ = calc_energy_grad(current_q, force_field)
     conformation_molecules = [current_q]
     energies = [energy]
     all_conformation_molecules = [current_q]
@@ -193,8 +203,8 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
     start_time = time.time()
     num_accepted = 0
     for step in tqdm(range(args.num_steps)):
-        accepted, current_q, current_energy = hmc_step(current_q, args.temp, k_b, avogadro, mass, num_atoms,
-                                                       args.epsilon, args.L)
+        accepted, current_q, current_energy = hmc_step(current_q, force_field, args.temp, k_b, avogadro, mass,
+                                                       num_atoms, args.epsilon, args.L)
         if accepted:
             conformation_molecules.append(current_q)
             energies.append(current_energy)

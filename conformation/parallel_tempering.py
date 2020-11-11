@@ -9,7 +9,7 @@ import time
 from typing import List
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdForceFieldHelpers
 from rdkit.Chem.Lipinski import RotatableBondSmarts
 # noinspection PyPackageRequirements
 from tap import Tap
@@ -71,11 +71,15 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
         current_q.AddConformer(c)
         current_q_list.append(current_q)
 
+    # Compute force field information
+    mmff_p = rdForceFieldHelpers.MMFFGetMoleculeProperties(initial_q)
+    force_field = rdForceFieldHelpers.MMFFGetMoleculeForceField(initial_q, mmff_p)
+
     # Masses in kg
     mass = np.array([mol.GetAtomWithIdx(i).GetMass() / (1000. * avogadro) for i in range(num_atoms)])
 
     # Add the first conformation to the list
-    energy, _ = calc_energy_grad(current_q_list[0])
+    energy, _ = calc_energy_grad(current_q_list[0].GetConformer().GetPositions(), force_field)
     conformation_molecules = [current_q_list[0]]
     energies = [energy]
     all_conformation_molecules = [current_q_list[0]]
@@ -94,8 +98,8 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
         if alpha > args.swap_prob:
             results = []
             for i in range(len(args.temperatures)):
-                accepted, current_q, current_energy = hmc_step(current_q_list[i], args.temperatures[i], k_b,
-                                                               avogadro, mass, num_atoms, args.epsilon, args.L)
+                accepted, current_q, current_energy = hmc_step(current_q_list[i], force_field, args.temperatures[i],
+                                                               k_b, avogadro, mass, num_atoms, args.epsilon, args.L)
                 results.append([accepted, current_q, current_energy])
 
             for i in range(len(args.temperatures)):
@@ -116,9 +120,9 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
 
         elif len(args.temperatures) > 1:
             swap_index = random.randint(0, len(args.temperatures) - 2)
-            energy_k0, _ = calc_energy_grad(current_q_list[swap_index])
+            energy_k0, _ = calc_energy_grad(current_q_list[swap_index].GetConformer().GetPositions(), force_field)
             energy_k0 *= (1000.0 * 4.184 / avogadro)
-            energy_k1, _ = calc_energy_grad(current_q_list[swap_index + 1])
+            energy_k1, _ = calc_energy_grad(current_q_list[swap_index + 1].GetConformer().GetPositions(), force_field)
             energy_k1 *= (1000.0 * 4.184 / avogadro)
             delta_beta = (1./(k_b * args.temperatures[swap_index] * 4.184) -
                           1./(k_b * args.temperatures[swap_index + 1] * 4.184))
@@ -128,7 +132,7 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
             prob_ratio = math.exp(-delta)
             mu = random.uniform(0, 1)
             if swap_index == 0:
-                energy, _ = calc_energy_grad(current_q_list[0])
+                energy, _ = calc_energy_grad(current_q_list[0].GetConformer().GetPositions(), force_field)
             if mu <= prob_ratio:
                 tmp = copy.deepcopy(current_q_list[swap_index])
                 current_q_list[swap_index] = copy.deepcopy(current_q_list[swap_index + 1])

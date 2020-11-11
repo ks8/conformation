@@ -16,7 +16,7 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     generator: Literal["rdkit", "obabel"] = "obabel"  # Specify which program to use for generating initial structure
     rcutoff: float = 0.5  # RMSD cutoff
     ecutoff: float = 50.0  # Energy cutoff
@@ -39,8 +39,9 @@ def confab(args: Args, logger: Logger):
     print(f'Generating initial conformation...')
     if args.generator == "rdkit":
         # Load molecule
-        mol = Chem.MolFromSmiles(args.smiles)
-        mol = Chem.AddHs(mol)
+        # noinspection PyUnresolvedReferences
+        mol = Chem.Mol(open(args.bin_path, "rb").read())
+        mol.RemoveAllConformers()
 
         # Embed molecule
         # NOTE: This will produce the same embedding each time the program is run
@@ -58,9 +59,15 @@ def confab(args: Args, logger: Logger):
                   os.path.join(args.save_dir, "tmp.sdf"))
 
     else:
+        # Load molecule
+        # noinspection PyUnresolvedReferences
+        mol = Chem.Mol(open(args.bin_path, "rb").read())
+        mol.RemoveAllConformers()
+        smiles = Chem.MolToSmiles(mol)
+
         # Create SMILES file
         with open(os.path.join(args.save_dir, "tmp.smi"), "w") as f:
-            f.write(args.smiles)
+            f.write(smiles)
 
         os.system("obabel -ismi " + os.path.join(args.save_dir, "tmp.smi") + " -O " +
                   os.path.join(args.save_dir, "tmp.sdf") + " --gen3D")

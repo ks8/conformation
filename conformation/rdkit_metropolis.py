@@ -22,7 +22,7 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     cartesian: bool = False  # Whether or not to do MC proposals in Cartesian coords
     delta: float = 0.3  # Displacement value for Cartesian coord proposals
     num_steps: int = 1000  # Number of MC steps to perform
@@ -143,10 +143,10 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
 
     # Load molecule
     # noinspection PyUnresolvedReferences
-    mol = Chem.MolFromSmiles(args.smiles)
-    mol = Chem.AddHs(mol)
+    mol = Chem.Mol(open(args.bin_path, "rb").read())
+    mol.RemoveAllConformers()
 
-    debug(f'Starting search: {args.smiles}')
+    debug(f'Starting search...')
 
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
@@ -225,8 +225,9 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
         b.write(bin_str)
 
     # Save all sub sampled conformations in molecule object
-    all_mol = Chem.MolFromSmiles(args.smiles)
-    all_mol = Chem.AddHs(all_mol)
+    # noinspection PyUnresolvedReferences
+    all_mol = Chem.Mol(open(args.bin_path, "rb").read())
+    all_mol.RemoveAllConformers()
     for i in range(len(all_conformation_molecules)):
         c = all_conformation_molecules[i].GetConformer()
         c.SetId(i)

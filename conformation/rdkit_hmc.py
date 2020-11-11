@@ -22,10 +22,10 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     max_attempts: int = 10000  # Max number of embedding attempts
     num_minimization_iters: int = 0  # Number of minimization steps
-    temp: float = 298.0  # Temperature for computing Boltzmann probabilities
+    temp: float = 300.0  # Temperature for computing Boltzmann probabilities
     epsilon: float = 1  # Leapfrog step size in femtoseconds
     L: int = 10  # Number of leapfrog steps
     num_steps: int = 1  # Number of HMC steps
@@ -167,10 +167,10 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
 
     # Load molecule
     # noinspection PyUnresolvedReferences
-    mol = Chem.MolFromSmiles(args.smiles)
-    mol = Chem.AddHs(mol)
+    mol = Chem.Mol(open(args.bin_path, "rb").read())
+    mol.RemoveAllConformers()
 
-    debug(f'Starting search: {args.smiles}')
+    debug(f'Starting search...')
 
     # Generate initial conformation
     # Here, we consider the variables of interest, q, to effectively be the atomic coordinates
@@ -229,8 +229,9 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
         b.write(bin_str)
 
     # Save all conformations in molecule object
-    all_mol = Chem.MolFromSmiles(args.smiles)
-    all_mol = Chem.AddHs(all_mol)
+    # noinspection PyUnresolvedReferences
+    all_mol = Chem.Mol(open(args.bin_path, "rb").read())
+    all_mol.RemoveAllConformers()
     for i in range(len(all_conformation_molecules)):
         c = all_conformation_molecules[i].GetConformer()
         c.SetId(i)

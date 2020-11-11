@@ -22,7 +22,7 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     max_attempts: int = 10000  # Max number of embedding attempts
     num_minimization_iters: int = 0  # Number of minimization steps
     temperatures: List[float] = [300, 500]  # Temperature ladder, with the first being the target temperature
@@ -52,10 +52,10 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
 
     # Load molecule
     # noinspection PyUnresolvedReferences
-    mol = Chem.MolFromSmiles(args.smiles)
-    mol = Chem.AddHs(mol)
+    mol = Chem.Mol(open(args.bin_path, "rb").read())
+    mol.RemoveAllConformers()
 
-    debug(f'Starting search: {args.smiles}')
+    debug(f'Starting search...')
 
     # Generate initial conformations
     # Here, we consider the variables of interest, q, to effectively be the atomic coordinates
@@ -195,8 +195,9 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
         b.write(bin_str)
 
     # Save all sub sampled conformations in molecule object
-    all_mol = Chem.MolFromSmiles(args.smiles)
-    all_mol = Chem.AddHs(all_mol)
+    # noinspection PyUnresolvedReferences
+    all_mol = Chem.Mol(open(args.bin_path, "rb").read())
+    all_mol.RemoveAllConformers()
     for i in range(len(all_conformation_molecules)):
         c = all_conformation_molecules[i].GetConformer()
         c.SetId(i)

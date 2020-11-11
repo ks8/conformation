@@ -19,7 +19,7 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     num_steps: int = 10  # Number of search steps
     search_type: Literal['LMCS', 'MCMM'] = 'MCMM'  # Search type
     schrodinger_root: str = "/data/swansonk1/schrodinger2020-3"  # Path to Schrodinger install
@@ -226,8 +226,9 @@ def macromodel(args: Args, logger: Logger):
     debug, info = logger.debug, logger.info
 
     # Embed molecule
-    mol = Chem.MolFromSmiles(args.smiles)
-    mol = Chem.AddHs(mol)
+    # noinspection PyUnresolvedReferences
+    mol = Chem.Mol(open(args.bin_path, "rb").read())
+    mol.RemoveAllConformers()
     AllChem.EmbedMolecule(mol)
     if args.init_minimize:
         AllChem.MMFFOptimizeMoleculeConfs(mol)

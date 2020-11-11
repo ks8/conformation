@@ -35,7 +35,6 @@ class Args(Tap):
     save_dir: str  # Path to directory containing output files
 
 
-# noinspection PyUnresolvedReferences
 def calc_energy_grad(pos: np.ndarray, force_field: rdForceField.ForceField) -> Tuple[float, np.ndarray]:
     """
     Compute MMFF energy and gradient.
@@ -52,20 +51,22 @@ def calc_energy_grad(pos: np.ndarray, force_field: rdForceField.ForceField) -> T
     return energy, grad
 
 
-def maxwell_boltzmann(temp: float, k_b: float, mass: float) -> np.ndarray:
+def maxwell_boltzmann(temp: float, k_b: float, mass: np.ndarray, num_atoms: int) -> np.ndarray:
     """
     Random draw from a Maxwell-Boltzmann distribution for a given temperature and mass.
     :param temp: Temperature (K).
     :param k_b: Boltzmann constant (cal/K).
     :param mass: Mass (kg).
+    :param num_atoms: Number of atoms.
     :return: Random value distributed according to Maxwell-Boltzmann distribution.
     """
     var = (k_b * 4.184 * temp) / mass
-    velocity = np.random.multivariate_normal(np.zeros(3), np.diag([var]*3))
+    velocity = np.array([np.random.normal(0, np.sqrt(var[i]), 3) for i in range(num_atoms)])
+
     return velocity
 
 
-# noinspection PyUnresolvedReferences,PyPep8Naming
+# noinspection PyUnresolvedReferences
 def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: float, k_b: float,
              avogadro: float, mass: np.ndarray, num_atoms: int, epsilon: float, L: int) -> \
         Tuple[bool, rdchem.Mol, float]:
@@ -93,11 +94,10 @@ def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: 
     # Generate random momentum values by sampling velocities from the Maxwell-Boltzmann distribution
     # Momentum is in kg * m / s
     # Set the velocity center of mass to zero
-    v = np.array([maxwell_boltzmann(temp, k_b, mass[i]) for i in range(num_atoms)])
+    v = maxwell_boltzmann(temp, k_b, mass, num_atoms)
     p = v * mass_expanded
-    v_cm = np.sum(p, axis=0) / sum(mass)
-    for i in range(num_atoms):
-        v[i] -= v_cm
+    v_cm = np.sum(p, axis=0) / np.sum(mass)
+    v -= v_cm
     p = v * mass_expanded
     current_p = p
 
@@ -132,12 +132,10 @@ def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: 
     # Energies are in Joules
     current_u, _ = calc_energy_grad(current_pos, force_field)
     current_u *= (1000.0 * 4.184 / avogadro)
-    current_k = sum([((np.linalg.norm(current_p[i])) ** 2 / (2. * mass[i])) for i in
-                     range(num_atoms)])
+    current_k = np.sum((np.linalg.norm(current_p, axis=1) ** 2) / (2. * mass))
     proposed_u, _ = calc_energy_grad(pos, force_field)
     proposed_u *= (1000.0 * 4.184 / avogadro)
-    proposed_k = sum([((np.linalg.norm(p[i])) ** 2 / (2. * mass[i])) for i in
-                      range(num_atoms)])
+    proposed_k = np.sum((np.linalg.norm(p, axis=1) ** 2) / (2. * mass))
 
     # Current energy in kcal/mol
     current_energy = current_u / (1000.0 * 4.184 / avogadro)

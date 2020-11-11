@@ -87,15 +87,18 @@ def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: 
     q = copy.deepcopy(current_q)
     pos = q.GetConformer().GetPositions()
 
+    # Set expanded mass array
+    mass_expanded = mass[:, np.newaxis]
+
     # Generate random momentum values by sampling velocities from the Maxwell-Boltzmann distribution
     # Momentum is in kg * m / s
     # Set the velocity center of mass to zero
     v = np.array([maxwell_boltzmann(temp, k_b, mass[i]) for i in range(num_atoms)])
-    p = np.array([v[i] * mass[i] for i in range(num_atoms)])
+    p = v * mass_expanded
     v_cm = np.sum(p, axis=0) / sum(mass)
     for i in range(num_atoms):
         v[i] -= v_cm
-    p = np.array([v[i] * mass[i] for i in range(num_atoms)])
+    p = v * mass_expanded
     current_p = p
 
     # Make a half-step for momentum at the beginning
@@ -107,15 +110,9 @@ def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: 
     # Alternate full steps for position and momentum
     for i in range(L):
         # Make a full step for the position
-        c = q.GetConformer()
-        pos = c.GetPositions()
-        v = np.array([p[i] / mass[i] for i in range(num_atoms)])
+        v = p / mass_expanded
         v *= 1e10  # Convert to Angstroms / s
         pos = pos + epsilon * v
-
-        # Save updated atomic coordinates to the conformation object
-        for j in range(len(pos)):
-            c.SetAtomPosition(j, Point3D(pos[j][0], pos[j][1], pos[j][2]))
 
         # Make a full step for the momentum, except at the end of the trajectory
         if i != L - 1:

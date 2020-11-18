@@ -88,7 +88,10 @@ def analyze_distributions(args: Args) -> None:
         sns.histplot(angles[i], ax=ax, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1))
         ax.set_xlabel("Angle (radians)")
         ax.set_ylabel("Count")
-        ax.figure.savefig(os.path.join(args.save_dir, f'rotatable-bond-{bond[0]}-{bond[1]}-distribution.png'))
+        atom_0 = mol.GetAtomWithIdx(bond[0]).GetSymbol()
+        atom_1 = mol.GetAtomWithIdx(bond[1]).GetSymbol()
+        ax.figure.savefig(os.path.join(args.save_dir,
+                                       f'rotatable-bond-{bond[0]}-{bond[1]}-{atom_0}-{atom_1}-distribution.png'))
         plt.clf()
         plt.close()
 

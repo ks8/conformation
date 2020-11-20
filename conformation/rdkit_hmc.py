@@ -144,6 +144,9 @@ def hmc_step(current_q: rdchem.Mol, force_field: rdForceField.ForceField, temp: 
     mu = random.uniform(0, 1)
     accepted = False
     if mu <= prob_ratio:
+        c = q.GetConformer()
+        for j in range(len(pos)):
+            c.SetAtomPosition(j, Point3D(pos[j][0], pos[j][1], pos[j][2]))
         current_q = q
         current_energy = proposed_u / (1000.0 * 4.184 / avogadro)
         accepted = True

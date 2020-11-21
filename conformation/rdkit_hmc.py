@@ -191,11 +191,8 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
     mass = np.array([mol.GetAtomWithIdx(i).GetMass()/(1000.*avogadro) for i in range(num_atoms)])
 
     # Add the first conformation to the list
-    energy, _ = calc_energy_grad(current_q, force_field)
-    conformation_molecules = [current_q]
-    energies = [energy]
+    energy, _ = calc_energy_grad(current_q.GetConformer().GetPositions(), force_field)
     all_conformation_molecules = [current_q]
-    all_energies = [energy]
 
     debug(f'Running HMC steps...')
     start_time = time.time()
@@ -204,37 +201,20 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
         accepted, current_q, current_energy = hmc_step(current_q, force_field, args.temp, k_b, avogadro, mass,
                                                        num_atoms, args.epsilon, args.L)
         if accepted:
-            conformation_molecules.append(current_q)
-            energies.append(current_energy)
             num_accepted += 1
 
         if step % args.subsample_frequency == 0:
             all_conformation_molecules.append(current_q)
-            all_energies.append(current_energy)
 
         if step % args.log_frequency == 0:
-            debug(f'Number of conformations identified: {len(conformation_molecules)}')
             debug(f'% Moves accepted: {float(num_accepted) / float(step + 1) * 100.0}')
     end_time = time.time()
     debug(f'Total Time(s): {end_time - start_time}')
-    debug(f'Number of conformations identified: {len(conformation_molecules)}')
     debug(f'% Moves accepted: {float(num_accepted) / float(args.num_steps) * 100.0}')
 
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
     debug(f'Num rotatable bonds: {len(rotatable_bonds)}')
-
-    # Save unique conformations in molecule object
-    debug(f'Saving conformations...')
-    for i in range(len(conformation_molecules)):
-        c = conformation_molecules[i].GetConformer()
-        c.SetId(i)
-        mol.AddConformer(c)
-
-    # Save molecule to binary file
-    bin_str = mol.ToBinary()
-    with open(os.path.join(args.save_dir, "accepted-conformations.bin"), "wb") as b:
-        b.write(bin_str)
 
     # Save all conformations in molecule object
     # noinspection PyUnresolvedReferences
@@ -247,5 +227,5 @@ def rdkit_hmc(args: Args, logger: Logger) -> None:
 
     # Save molecule to binary file
     bin_str = all_mol.ToBinary()
-    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
         b.write(bin_str)

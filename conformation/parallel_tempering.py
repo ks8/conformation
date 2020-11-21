@@ -80,14 +80,10 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
 
     # Add the first conformation to the list
     energy, _ = calc_energy_grad(current_q_list[0].GetConformer().GetPositions(), force_field)
-    conformation_molecules = [current_q_list[0]]
-    energies = [energy]
     all_conformation_molecules = [current_q_list[0]]
-    all_energies = [energy]
 
     debug(f'Running HMC steps...')
     start_time = time.time()
-    swap = [0]
     num_internal_accepted = [0]*len(args.temperatures)
     num_swap_accepted = [0]*(len(args.temperatures) - 1)
     num_swap_attempted = [0]*(len(args.temperatures) - 1)
@@ -106,17 +102,12 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
                 accepted, current_q, current_energy = results[i]
 
                 if accepted:
-                    if i == 0:
-                        conformation_molecules.append(current_q)
-                        energies.append(current_energy)
                     current_q_list[i] = current_q  # Necessary because Python is pass by object reference!
                     num_internal_accepted[i] += 1
 
                 if i == 0:
                     if step % args.subsample_frequency == 0:
                         all_conformation_molecules.append(current_q)
-                        all_energies.append(current_energy)
-                        swap.append(0)
 
         elif len(args.temperatures) > 1:
             swap_index = random.randint(0, len(args.temperatures) - 2)
@@ -139,21 +130,13 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
                 current_q_list[swap_index + 1] = tmp
                 num_swap_accepted[swap_index] += 1
                 total_num_swap_accepted += 1
-                if swap_index == 0:
-                    conformation_molecules.append(current_q_list[0])
-                    energies.append(energy)
-                    swap.append(100)
             if swap_index == 0:
                 if step % args.subsample_frequency == 0:
                     all_conformation_molecules.append(current_q_list[0])
-                    all_energies.append(energy)
-                    if mu > prob_ratio:
-                        swap.append(0)
             num_swap_attempted[swap_index] += 1
             total_swap_attempted += 1
 
         if step % args.log_frequency == 0:
-            debug(f'Number of conformations identified: {len(conformation_molecules)}')
             for i in range(len(args.temperatures)):
                 debug(f'% Moves accepted for temperature {args.temperatures[i]}: '
                       f'{float(num_internal_accepted[i]) / float(step + 1) * 100.0}')
@@ -174,7 +157,6 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
                       f'{float(total_num_swap_accepted) / float(total_swap_attempted) * 100.0}')
     end_time = time.time()
     debug(f'Total Time (s): {end_time - start_time}')
-    debug(f'Number of conformations identified: {len(conformation_molecules)}')
     for i in range(len(args.temperatures)):
         debug(f'% Moves accepted for temperature {args.temperatures[i]}: '
               f'{float(num_internal_accepted[i]) / float(args.num_steps) * 100.0}')
@@ -185,18 +167,6 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
     # Discover the rotatable bonds
     rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
     debug(f'Num rotatable bonds: {len(rotatable_bonds)}')
-
-    # Save accepted conformations in molecule object
-    debug(f'Saving conformations...')
-    for i in range(len(conformation_molecules)):
-        c = conformation_molecules[i].GetConformer()
-        c.SetId(i)
-        mol.AddConformer(c)
-
-    # Save molecule to binary file
-    bin_str = mol.ToBinary()
-    with open(os.path.join(args.save_dir, "accepted-conformations.bin"), "wb") as b:
-        b.write(bin_str)
 
     # Save all sub sampled conformations in molecule object
     # noinspection PyUnresolvedReferences
@@ -209,5 +179,5 @@ def parallel_tempering(args: Args, logger: Logger) -> None:
 
     # Save molecule to binary file
     bin_str = all_mol.ToBinary()
-    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
         b.write(bin_str)

@@ -136,10 +136,8 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
     avogadro = 6.022e23
 
     # Molecule conformation list
-    conformation_molecules = []
-    energies = []
+    # conformation_molecules = []
     all_conformation_molecules = []
-    all_energies = []
 
     # Load molecule
     # noinspection PyUnresolvedReferences
@@ -160,10 +158,7 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
     else:
         res = AllChem.MMFFOptimizeMoleculeConfs(current_sample, maxIters=0)
     current_energy = res[0][1] * 1000.0 / avogadro
-    conformation_molecules.append(current_sample)
-    energies.append(res[0][1])
     all_conformation_molecules.append(current_sample)
-    all_energies.append(res[0][1])
 
     # Run MC steps
     debug(f'Running MC steps...')
@@ -190,39 +185,20 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
             current_sample = proposed_sample
             current_energy = proposed_energy
 
-            # Save the proposed sample to the list of conformations
-            conformation_molecules.append(proposed_sample)
-            energies.append(res[0][1])
-
             num_accepted += 1
 
         if step % args.subsample_frequency == 0:
             all_conformation_molecules.append(current_sample)
-            all_energies.append(current_energy * avogadro / 1000.)
 
         if step % args.log_frequency == 0:
             if num_accepted == 0:
                 acceptance_percentage = 0.0
             else:
                 acceptance_percentage = float(num_accepted)/float(step + 1)*100.0
-            debug(f'Steps completed: {step}, num conformations accepted: {len(conformation_molecules)}, '
-                  f'acceptance percentage: {acceptance_percentage}')
+            debug(f'Steps completed: {step}, acceptance percentage: {acceptance_percentage}')
     end_time = time.time()
     debug(f'Total Time (s): {end_time - start_time}')
-    debug(f'Number of conformations accepted: {len(conformation_molecules)}')
     debug(f'% Moves accepted: {float(num_accepted)/float(args.num_steps)*100.0}')
-
-    # Save accepted conformations in molecule object
-    debug(f'Saving conformations...')
-    for i in range(len(conformation_molecules)):
-        c = conformation_molecules[i].GetConformer()
-        c.SetId(i)
-        mol.AddConformer(c)
-
-    # Save molecule to binary file
-    bin_str = mol.ToBinary()
-    with open(os.path.join(args.save_dir, "accepted-conformations.bin"), "wb") as b:
-        b.write(bin_str)
 
     # Save all sub sampled conformations in molecule object
     # noinspection PyUnresolvedReferences
@@ -235,5 +211,5 @@ def rdkit_metropolis(args: Args, logger: Logger) -> None:
 
     # Save molecule to binary file
     bin_str = all_mol.ToBinary()
-    with open(os.path.join(args.save_dir, "all-conformations.bin"), "wb") as b:
+    with open(os.path.join(args.save_dir, "conformations.bin"), "wb") as b:
         b.write(bin_str)

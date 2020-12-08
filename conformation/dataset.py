@@ -24,6 +24,24 @@ def to_one_hot(x: int, vals: Union[List, range]) -> List:
     return [x == v for v in vals]
 
 
+class BasicDataset(Dataset):
+    """
+    Dataset class for loading non-molecular data organized as numpy arrays
+    """
+    def __init__(self, metadata: List[Dict[str, str]]):
+        super(Dataset, self).__init__()
+        self.metadata = metadata
+
+    def __len__(self) -> int:
+        return len(self.metadata)
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        data = torch.from_numpy(np.load(self.metadata[idx]['path']))
+        data = data.type(torch.float32)
+
+        return data
+
+
 class MolDataset(Dataset):
     """
     Dataset class for loading atomic pairwise distance information for molecules.

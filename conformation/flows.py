@@ -409,6 +409,20 @@ class NormalizingFlowModel(nn.Module):
             x = self.bijectors[b](x)  # Process a sample through the flow
         return x
 
+    def forward_pass_with_log_abs_det_jacobian(self, x: torch.Tensor) -> Tuple[torch.Tensor, List]:
+        """
+        Process a sample from the underlying distribution, x, through the flow and return the transformed sample as well
+        as the corresponding log abs det Jacobian value.
+        :param x: Sample that was drawn from this flow's base distribution.
+        :return: Transformed sample and log abs det Jacobian.
+        """
+        self.log_det = []
+        for b in range(len(self.bijectors)):
+            x = self.bijectors[b](x)
+            if b > 0:
+                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
+        return x, self.log_det
+
 
 class GNFFlowModel(nn.Module):
     """

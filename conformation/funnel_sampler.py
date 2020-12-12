@@ -24,9 +24,10 @@ def funnel_pdf(x: np.ndarray) -> float:
     :param x: Sample to evaluate.
     :return: PDF value.
     """
-    pdf = scipy.stats.multivariate_normal(0, 3).pdf(x[0])
+    pdf = scipy.stats.norm(0, 3).pdf(x[0])
     for i in range(1, x.shape[0]):
-        pdf *= scipy.stats.multivariate_normal(0, math.exp(x[0] / 2)).pdf(x[i])
+        print(scipy.stats.norm(0, math.exp(x[0] / 2)).pdf(x[i]))
+        pdf *= scipy.stats.norm(0, math.exp(x[0] / 2)).pdf(x[i])
     return pdf
 
 

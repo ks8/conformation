@@ -18,10 +18,9 @@ class Args(Tap):
     System arguments.
     """
     checkpoint_path: str  # Path to saved model checkpoint file
-    conditional: bool = False  # Whether or not to use a conditional normalizing flow
+    conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
     smiles: str = None  # Molecular SMILES string
-    num_atoms: int = 8  # Number of atoms  # TODO: might not be necessary
     num_layers: int = 10  # Number of RealNVP layers
     num_samples: int = 1000  # Number of samples to attempt
     save_dir: str = None  # Save directory
@@ -29,7 +28,6 @@ class Args(Tap):
     dihedral: bool = False  # Use when computing dihedral angle values
     dihedral_vals: List[int] = [2, 0, 1, 5]  # Atom IDs for dihedral
     cuda: bool = False  # Whether or not to use cuda
-    gpu_device: int = 0  # Which GPU to use (0 or 1)
     random_coords: bool = True  # Whether or not to use random coordinates for EDG algorithm
 
 
@@ -51,38 +49,39 @@ def run_sampling(args: Args) -> None:
     # Load model
     if args.checkpoint_path is not None:
         print('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda, args.gpu_device)
+        model = load_checkpoint(args.checkpoint_path, args.cuda)
 
         print(model)
         print('Number of parameters = {:,}'.format(param_count(model)))
 
         if args.cuda:
-            with torch.cuda.device(args.gpu_device):
-                print('Moving model to cuda')
-                model = model.cuda()
-            device = torch.device(args.gpu_device)
-        else:
-            device = torch.device('cpu')
+            print('Moving model to cuda')
+            model = model.cuda()
 
         # Conformation counter
         counter = 0
 
         with torch.no_grad():
             model.eval()
-            num_atoms = args.num_atoms
 
             # Create molecule from SMILES
             mol = Chem.MolFromSmiles(args.smiles)
             mol = Chem.AddHs(mol)
             ps = AllChem.ETKDG()
+            num_atoms = mol.GetNumAtoms()
 
             # Create a random conformation object
             tmp = Chem.MolFromSmiles(args.smiles)
             tmp = Chem.AddHs(tmp)
 
+            condition = np.load(args.condition_path)
+            condition = torch.from_numpy(condition)
+            condition = condition.type(torch.float32)
+            condition = condition.cuda()
+
             for j in range(args.num_samples):
-                if args.conditional:
-                    gen_sample = model.sample(args.num_layers, args.condition_path, device)
+                if args.conditional_base:
+                    gen_sample = model.sample(args.num_layers, condition, args.cuda)
                 else:
                     gen_sample = model.sample(args.num_layers)
                 distmat = np.zeros([num_atoms, num_atoms])

@@ -51,9 +51,8 @@ def build_model(args: Args) -> NormalizingFlowModel:
     :param args: System parameters.
     :return: nn.Module defining the normalizing flow.
     """
-    # TODO: does torch.device(0) only give one GPU option? Or any options?
     if args.cuda:
-        device = torch.device(args.gpu_device)
+        device = torch.device(0)
     else:
         device = torch.device('cpu')
 
@@ -86,9 +85,10 @@ def build_model(args: Args) -> NormalizingFlowModel:
                                       torch.from_numpy(np.array([j >= int(args.input_dim / 2) for j in
                                                                  range(args.input_dim)]).astype(np.float32))))
 
-    if args.conditional:
-        return NormalizingFlowModel(biject, conditional=True, condition_dim=args.condition_dim,
-                                    output_dim=args.output_dim)
+    if args.conditional_base:
+        return NormalizingFlowModel(biject, conditional_base=True, condition_dim=args.condition_dim,
+                                    base_output_dim=args.base_output_dim, input_dim=args.input_dim,
+                                    padding=args.padding, base_hidden_size=args.base_hidden_size)
     elif args.conditional_concat:
         return NormalizingFlowModel(biject, base_dist, conditional_concat=True)
     else:

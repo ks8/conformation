@@ -44,15 +44,14 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
     for batch in tqdm(data, total=len(data)):
         if args.cuda:
             # noinspection PyUnresolvedReferences
-            with torch.cuda.device(args.gpu_device):
-                if args.conditional or args.conditional_concat:
-                    batch = (batch[0].cuda(), batch[1].cuda())
-                else:
-                    batch = batch.cuda()
+            if args.conditional_base or args.conditional_concat:
+                batch = (batch[0].cuda(), batch[1].cuda())
+            else:
+                batch = batch.cuda()
         model.zero_grad()
-        if args.conditional:
+        if args.conditional_base:
             z, log_jacobians, means = model(batch[0], batch[1])
-            loss = loss_func_cnf(z, log_jacobians, means, args.gpu_device)
+            loss = loss_func_cnf(z, log_jacobians, means, args.cuda)
         elif args.conditional_concat:
             z, log_jacobians = model(batch[0], batch[1])
             loss = loss_func(z, log_jacobians, model.base_dist)
@@ -94,7 +93,7 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     # Load datasets
     debug('Loading data')
     metadata = json.load(open(args.data_path))
-    train_data = BasicDataset(metadata, args.conditional or args.conditional_concat)
+    train_data = BasicDataset(metadata, args.conditional_base or args.conditional_concat)
 
     # Dataset lengths
     train_data_length = len(train_data)
@@ -106,7 +105,7 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     # Load/build model
     if args.checkpoint_path is not None:
         debug('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda, args.gpu_device)
+        model = load_checkpoint(args.checkpoint_path, args.cuda)
     else:
         debug('Building model')
         model = build_model(args)
@@ -116,9 +115,8 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
 
     if args.cuda:
         # noinspection PyUnresolvedReferences
-        with torch.cuda.device(args.gpu_device):
-            debug('Moving model to cuda')
-            model = model.cuda()
+        debug('Moving model to cuda')
+        model = model.cuda()
 
     # Optimizer
     optimizer = Adam(model.parameters(), lr=args.lr)

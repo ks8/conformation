@@ -22,7 +22,7 @@ def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: Mul
     return -(base_dist.log_prob(z) - sum(log_jacobians)).mean()
 
 
-def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, gpu_device: int = 0) -> \
+def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, cuda: bool = False) -> \
         torch.Tensor:
     """
     Loss function that computes the mean log probability of a training example by computing the log probability of its
@@ -30,12 +30,11 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
     :param z: Inverse values.
     :param log_jacobians: Log abs det jacobians.
     :param means: Base distribution means.
-    :param gpu_device: Which GPU to use.
+    :param cuda: Whether or not to use GPU.
     :return: Average loss.
     """
-    cuda = torch.cuda.is_available()
     if cuda:
-        device = torch.device(gpu_device)
+        device = torch.device(0)
     else:
         device = torch.device('cpu')
 
@@ -63,12 +62,11 @@ def save_checkpoint(model: nn.Module, args: Args, path: str) -> None:
     torch.save(state, path)
 
 
-def load_checkpoint(path: str, cuda: bool, gpu_device: int = 0) -> nn.Module:
+def load_checkpoint(path: str, cuda: bool) -> nn.Module:
     """
     Loads a model checkpoint.
     :param path: Path where checkpoint is saved.
     :param cuda: Whether to move model to cuda.
-    :param gpu_device: Which GPU to use.
     :return: The loaded model.
     """
     # Load model and args
@@ -78,7 +76,6 @@ def load_checkpoint(path: str, cuda: bool, gpu_device: int = 0) -> nn.Module:
 
     # Update args with current args
     args.cuda = cuda
-    args.gpu_device = gpu_device
 
     model = build_model(args)
     model.load_state_dict(loaded_state_dict)

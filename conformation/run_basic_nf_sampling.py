@@ -23,8 +23,7 @@ class Args(Tap):
     """
     checkpoint_path: str  # Path to saved model checkpoint file
     mcmc: bool = False  # Whether or not to do MCMC-driven sampling
-    hmc: bool = False  # Whether or not to do HMC-driven sampling
-    conditional: bool = False  # Whether or not to use a conditional normalizing flow
+    conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
     conditional_concat: bool = False  # Whether or not to use conditional concat NF
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
     epsilon: float = 0.25  # Leapfrog step size
@@ -37,7 +36,6 @@ class Args(Tap):
     subsample_frequency: int = 100  # Subsample frequency
     log_frequency: int = 1000  # Log frequency
     cuda: bool = False  # Whether or not to use cuda
-    gpu_device: int = 0  # Which GPU to use (0 or 1)
     save_dir: str = None  # Save directory
 
 
@@ -81,19 +79,15 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
     # Load model
     if args.checkpoint_path is not None:
         debug('Loading model from {}'.format(args.checkpoint_path))
-        model = load_checkpoint(args.checkpoint_path, args.cuda, args.gpu_device)
+        model = load_checkpoint(args.checkpoint_path, args.cuda)
 
         debug(model)
         debug('Number of parameters = {:,}'.format(param_count(model)))
 
         if args.cuda:
             # noinspection PyUnresolvedReferences
-            with torch.cuda.device(args.gpu_device):
-                debug('Moving model to cuda')
-                model = model.cuda()
-                device = torch.device(args.gpu_device)
-        else:
-            device = torch.device('cpu')
+            debug('Moving model to cuda')
+            model = model.cuda()
 
         if args.mcmc:
             debug("Starting MCMC search...")
@@ -113,7 +107,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                 samples = []
 
                 # Define the base distribution
-                if args.conditional:
+                if args.conditional_base:
                     condition = np.load(args.condition_path)
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
@@ -128,9 +122,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                 current_base_sample = np.array([rv.rvs(1)])
                 z = torch.from_numpy(current_base_sample).type(torch.float32)
                 if args.cuda:
-                    # noinspection PyUnresolvedReferences
-                    with torch.cuda.device(args.gpu_device):
-                        z = z.cuda()
+                    z = z.cuda()
 
                 # Transform the sample to one from the target space and compute the list of absolute value of Jacobian
                 # determinants
@@ -139,7 +131,8 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
                     condition = condition.cuda()
-                    current_target_sample, log_det = model.forward_pass_with_log_abs_det_jacobian(z, condition.unsqueeze(0))
+                    current_target_sample, log_det = \
+                        model.forward_pass_with_log_abs_det_jacobian(z, condition.unsqueeze(0))
                 else:
                     current_target_sample, log_det = model.forward_pass_with_log_abs_det_jacobian(z)
 
@@ -161,9 +154,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                                                      np.random.normal(0, args.proposal_std, args.base_dim)])
                     z = torch.from_numpy(proposed_base_sample).type(torch.float32)
                     if args.cuda:
-                        # noinspection PyUnresolvedReferences
-                        with torch.cuda.device(args.gpu_device):
-                            z = z.cuda()
+                        z = z.cuda()
 
                     # Transform the sample to one from the target space and compute the list of absolute value of
                     # Jacobian determinants
@@ -207,117 +198,19 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                 samples = np.array(samples)
                 np.save(os.path.join(args.save_dir, "samples.npy"), samples)
 
-        elif args.hmc:
-            debug("Starting HMC sampling...")
-            model.eval()
-
-            for param in model.parameters():
-                param.requires_grad = False
-
-            # Samples list
-            samples = []
-
-            # Define the base distribution
-            rv = scipy.stats.multivariate_normal(mean=np.zeros(args.base_dim), cov=np.ones(args.base_dim))
-
-            # Generate an initial sample from the base space
-            current_base_sample = np.array([rv.rvs(1)])
-            z = torch.from_numpy(current_base_sample).type(torch.float32)
-            if args.cuda:
-                # noinspection PyUnresolvedReferences
-                with torch.cuda.device(args.gpu_device):
-                    z = z.cuda()
-
-            # Transform the sample to one from the target space and compute the list of absolute value of Jacobian
-            # determinants
-            current_target_sample, log_det = model.forward_pass_with_log_abs_det_jacobian(z)
-
-            # Compute the product of the determinants
-            log_det = [math.exp(i) for i in log_det]
-
-            # Compute the energy under the target distribution
-            current_target_sample = current_target_sample.detach().cpu().numpy()
-            current_target_energy = -1.*np.log(funnel_pdf(current_target_sample[0]) * np.prod(log_det))
-
-            samples.append(current_target_sample[0])
-
-            for step in tqdm(range(args.num_samples)):
-                model.zero_grad()
-                # Set the current position variables
-                q = current_base_sample[0]
-
-                # Generate random momentum values
-                p = np.random.multivariate_normal(np.zeros(len(q)), np.identity(len(q)))
-                current_p = p
-
-                z = torch.from_numpy(current_base_sample).type(torch.float32)
-                if args.cuda:
-                    # noinspection PyUnresolvedReferences
-                    with torch.cuda.device(args.gpu_device):
-                        z = z.cuda()
-                z.requires_grad = True
-
-                # Transform the sample to one from the target space and compute the list of absolute value of
-                # Jacobian determinants
-                current_target_sample, log_det = model.forward_pass_with_log_abs_det_jacobian(z)
-                log_det_prod = log_det[0]
-                for i in range(1, len(log_det)):
-                    log_det_prod = torch.dot(log_det_prod, log_det[i]).unsqueeze(0)
-
-                test = neg_log_pdf_funnel_pytorch(current_target_sample[0])
-                test.backward()
-                print(z.grad)
-                exit()
-
-                # current_target_sample, log_det = model.forward_pass_with_log_abs_det_jacobian(z)
-                # a = torch.prod(torch.tensor(log_det))
-                # a.backward()
-                # exit()
-                # current_target_energy = neg_log_pdf_funnel_pytorch(current_target_sample[0])*torch.prod(torch.tensor(log_det))
-                # current_target_energy.backward()
-
-
-            #
-            #     # Make a half step for momentum at the beginning
-            #     p = p - args.epsilon * gradient_function(jnp.array(q)) / 2.
-            #
-            #     # Alternate full steps for position and momentum
-            #     for i in range(L):
-            #         # Make a full step for the position
-            #         q = q + epsilon * p
-            #
-            #         # Make a full step for the momentum, except at the end of the trajectory
-            #         if i != L - 1:
-            #             p = p - epsilon * gradient_function(jnp.array(q))
-            #
-            #     # Make a half step for momentum at the end
-            #     p = p - epsilon * gradient_function(jnp.array(q)) / 2.
-            #
-            #     # Negate the momentum at the end of the trajectory to make the proposal symmetric
-            #     p *= -1.0
-            #
-            #     # Evaluate potential and kinetic energies at start and end of the trajectory
-            #     current_u = energy_function(current_q)
-            #     current_k = np.dot(current_p, current_p) / 2.
-            #     proposed_u = energy_function(q)
-            #     proposed_k = np.dot(p, p) / 2.
-            #
-            #     # Apply the Metropolis-Hastings criterion
-            #     prob_ratio = math.exp(current_u - proposed_u + current_k - proposed_k)
-            #     mu = random.uniform(0, 1)
-            #     accepted = False
-            #     if mu <= prob_ratio:
-            #         current_q = q
-            #         accepted = True
-
         else:
             debug("Starting NF sampling...")
             with torch.no_grad():
                 model.eval()
                 samples = []
+                if args.conditional_base or args.conditional_concat:
+                    condition = np.load(args.condition_path)
+                    condition = torch.from_numpy(condition)
+                    condition = condition.type(torch.float32)
+                    condition = condition.cuda()
                 for _ in tqdm(range(args.num_samples)):
-                    if args.conditional or args.conditional_concat:
-                        gen_sample = model.sample(args.num_layers, args.condition_path, device, args.conditional_concat)
+                    if args.conditional_base or args.conditional_concat:
+                        gen_sample = model.sample(args.num_layers, condition, args.cuda, args.conditional_concat)
                     else:
                         gen_sample = model.sample(args.num_layers)
                     samples.append(gen_sample.cpu().numpy())

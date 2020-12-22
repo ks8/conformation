@@ -1,6 +1,4 @@
 """ Args class for training arguments. """
-import os
-
 # noinspection PyPackageRequirements
 from tap import Tap
 
@@ -10,20 +8,25 @@ class Args(Tap):
     System arguments.
     """
     data_path: str  # Path to metadata JSON file
-    save_dir: str  # Path to directory containing output files (average distances)
-    checkpoint_path: str = None  # Path to checkpoint file
-    conditional: bool = False  # Whether or not to run a conditional normalizing flow
-    conditional_concat: bool = False  # Whether or not to run a conditional NF with concatenation method
-    graph_model_path: str = None  # Path to saved graph model checkpoint file (conditional = True)
-    num_layers: int = 10  # Number of RealNVP layers
+    save_dir: str  # Path to directory containing output files
+    checkpoint_path: str = None  # Path to PyTorch checkpoint file
+    conditional_base: bool = False  # Whether or not to run a conditional base normalizing flow
+    conditional_concat: bool = False  # Whether or not to run a conditional concat normalizing flow
+    graph_model_path: str = None  # Path to saved graph model checkpoint file (conditional_base = True and using
+    # molecule data)
+    num_layers: int = 10  # Number of flow layers (2 layers is equivalent to one full coupling layer)
     num_epochs: int = 10  # Number of training epochs
     batch_size: int = 10  # Training batch size
     lr: float = 1e-4  # Learning rate
-    input_dim: int = 28  # Number of pairwise distances (dimensionality of input vectors)
-    condition_dim: int = 256  # Hidden size of condition vectors (conditional = True)
-    output_dim: int = 1  # Condition layers output dimension
-    num_atoms: int = 8  # Number of atoms in molecule # TODO: check where this matters??
-    hidden_size: int = 256  # Hidden size
+    input_dim: int = 28  # Dimensionality of input vectors that pass through the flow
+    condition_dim: int = 256  # Length of condition vectors, or hidden size if they are multi-dimensional
+    # (conditional_base = True or conditional_concat = True)
+    base_output_dim: int = 1  # Output dimension for the feedforward network that produces the mean vector for the base
+    #  distribution. Use base_output_dim=1 for previous molecule work, otherwise base_output_dim should be set to
+    #  input_dim (conditional_base = True)
+    hidden_size: int = 256  # Hidden size for flow layers
+    base_hidden_size: int = 1024  # Hidden size for feedforward network that produces the mean vector for the base
+    # distribution (conditional_base = True)
     log_frequency: int = 10  # Log frequency
     cuda: bool = False  # Cuda availability (this is set automatically)
-    gpu_device: int = 0  # Which GPU to use
+    padding: bool = False  # Whether or not padding will be used (conditional_base = True).

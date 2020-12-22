@@ -28,18 +28,24 @@ class BasicDataset(Dataset):
     """
     Dataset class for loading non-molecular data organized as numpy arrays
     """
-    def __init__(self, metadata: List[Dict[str, str]]):
+    def __init__(self, metadata: List[Dict[str, str]], condition: bool = False):
         super(Dataset, self).__init__()
         self.metadata = metadata
+        self.condition = condition
 
     def __len__(self) -> int:
         return len(self.metadata)
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
+    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         data = torch.from_numpy(np.load(self.metadata[idx]['path']))
         data = data.type(torch.float32)
 
-        return data
+        if self.condition:
+            condition = torch.from_numpy(np.load(self.metadata[idx]['condition']))
+            condition = condition.type(torch.float32)
+            return data, condition
+        else:
+            return data
 
 
 class MolDataset(Dataset):

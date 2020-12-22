@@ -200,6 +200,66 @@ class RealNVP(nn.Module):
         return log_det_j
 
 
+class CNF(nn.Module):
+    """
+    Performs a single layer of the RealNVP flow.
+    """
+
+    def __init__(self, nets: nn.Sequential, nett: nn.Sequential, mask: torch.Tensor) -> None:
+        """
+        :param nets: "s" neural network definition.
+        :param nett: "t" neural network definition.
+        :param mask: Mask identifying which components of the vector will be processed together in any given layer.
+        :return: None.
+        """
+        super(CNF, self).__init__()
+        self.mask = nn.Parameter(mask, requires_grad=False)
+        self.t = nett
+        self.s = nets
+
+    def forward(self, z: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        """
+        Transform a sample from the base distribution or previous layer.
+        :param z: Sample from the base distribution or previous layer.
+        :param c: Condition.
+        :return: Processed sample (in the direction towards the target distribution).
+        """
+        x = z
+        x_ = x * self.mask
+        s = self.s(torch.cat((x_, c), 1)) * (1 - self.mask)
+        t = self.t(torch.cat((x_, c), 1)) * (1 - self.mask)
+        x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
+        return x
+
+    def inverse(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the inverse of a target sample or a sample from the next layer.
+        :param x: Sample from the target distribution or the next layer.
+        :param c: Condition.
+        :return: Inverse sample (in the direction towards the base distribution).
+        """
+        log_det_j, z = x.new_zeros(x.shape[0]), x
+        z_ = self.mask * z
+        s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+        t = self.t(torch.cat((z_, c), 1)) * (1 - self.mask)
+        z = (1 - self.mask) * (z - t) * torch.exp(-s) + z_
+        return z
+
+    def log_abs_det_jacobian(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
+        direction.
+        :param x: Sample.
+        :param c: Condition.
+        :return: log abs det jacobian.
+        """
+        log_det_j, z = x.new_zeros(x.shape[0]), x
+        z_ = self.mask * z
+        s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+        log_det_j += s.sum(dim=1)
+        return log_det_j
+
+
 # class CNF(nn.Module):
 #     """
 #     Performs a single layer of the RealNVP flow.
@@ -339,7 +399,8 @@ class NormalizingFlowModel(nn.Module):
     """
 
     def __init__(self, biject: List[RealNVP], base_dist: MultivariateNormal = None, conditional: bool = False,
-                 padding_dim: int = 528, condition_dim: int = 256, hidden_size: int = 1024):
+                 padding_dim: int = 528, condition_dim: int = 256, hidden_size: int = 1024, output_dim: int = 1,
+                 conditional_concat: bool = False):
         """
         :param biject: List of flow layers.
         :param base_dist: Base distribution, specified for non-conditional flow.
@@ -354,12 +415,14 @@ class NormalizingFlowModel(nn.Module):
         self.bijectors = nn.ModuleList(self.biject)
         self.log_det = []
         self.conditional = conditional
+        self.conditional_concat = conditional_concat
         if self.conditional:
             self.padding_dim = padding_dim
             self.condition_dim = condition_dim
             self.hidden_size = hidden_size
+            self.output_dim = output_dim
             self.linear_layer = torch.nn.Linear(self.condition_dim, self.hidden_size)
-            self.output_layer = torch.nn.Linear(self.hidden_size, 1)
+            self.output_layer = torch.nn.Linear(self.hidden_size, self.output_dim)
 
     def forward(self, x: torch.Tensor, c: torch.Tensor = None) -> Union[Tuple[torch.Tensor, List[torch.Tensor]],
                                                                         Tuple[torch.Tensor, List[torch.Tensor],
@@ -373,55 +436,89 @@ class NormalizingFlowModel(nn.Module):
         :return: Inverse, log abs det jacobians, and (optionally) processed condition matrix.
         """
         self.log_det = []  # Accumulate the log abs det jacobians of the transformations
-        for b in range(len(self.bijectors) - 1, -1, -1):
-            self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
-            x = self.bijectors[b].inverse(x)
+        if self.conditional_concat:
+            for b in range(len(self.bijectors) - 1, -1, -1):
+                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x, c))
+                x = self.bijectors[b].inverse(x, c)
+        else:
+            for b in range(len(self.bijectors) - 1, -1, -1):
+                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
+                x = self.bijectors[b].inverse(x)
         if self.conditional:
             u = self.output_layer(self.linear_layer(c))
-            return x, self.log_det, u.squeeze(2)
+            if self.output_dim == 1:
+                return x, self.log_det, u.squeeze(2)
+            elif self.output_dim == 2:
+                return x, self.log_det, u
         else:
             return x, self.log_det
 
-    def sample(self, sample_layers: int, condition_path: str = None, device: torch.device = None) -> torch.Tensor:
+    def sample(self, sample_layers: int, condition_path: str = None, device: torch.device = None,
+               conditional_concat: bool = False) -> torch.Tensor:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
         :param sample_layers: Number of layers to use for sampling.
         :param condition_path: Path to condition numpy file.
         :param device: CPU or GPU for tensor conversion.
+        :param conditional_concat: Conditional concat scheme.
         :return: Sample from the approximate target distribution.
         """
         if condition_path is not None:
             condition = np.load(condition_path)
             condition = torch.from_numpy(condition)
             condition = condition.type(torch.float32)
-            padding = torch.zeros([self.padding_dim, self.condition_dim], device=device)
-            padding[0:condition.shape[0], :] = condition
-            condition = padding
+            condition = condition.cuda()
 
-            u = self.output_layer(self.linear_layer(condition)).squeeze(1)
-            base_dist = MultivariateNormal(u, torch.eye(self.padding_dim, device=device))
+            if conditional_concat:
+                base_dist = self.base_dist
+            else:
+                # padding = torch.zeros([self.padding_dim, self.condition_dim], device=device)
+                # padding[0:condition.shape[0], :] = condition
+                # condition = padding
+
+                # u = self.output_layer(self.linear_layer(condition)).squeeze(1)
+                u = self.output_layer(self.linear_layer(condition))
+
+                # base_dist = MultivariateNormal(u, torch.eye(self.padding_dim, device=device))
+                base_dist = MultivariateNormal(u, torch.eye(u.shape[0], device=device))
 
         else:
             base_dist = self.base_dist
 
         x = base_dist.sample()
-        for b in range(sample_layers):
-            x = self.bijectors[b](x)  # Process a sample through the flow
+        x = x.unsqueeze(0)
+        if conditional_concat:
+            for b in range(sample_layers):
+                # noinspection PyUnboundLocalVariable
+                x = self.bijectors[b](x, condition.unsqueeze(0))  # Process a sample through the flow
+        else:
+            for b in range(sample_layers):
+                x = self.bijectors[b](x)  # Process a sample through the flow
         return x
 
-    def forward_pass_with_log_abs_det_jacobian(self, x: torch.Tensor) -> Tuple[torch.Tensor, List]:
+    def forward_pass_with_log_abs_det_jacobian(self, x: torch.Tensor, condition: torch.Tensor = None) -> \
+            Tuple[torch.Tensor, List]:
         """
         Process a sample from the underlying distribution, x, through the flow and return the transformed sample as well
         as the corresponding log abs det Jacobian value.
         :param x: Sample that was drawn from this flow's base distribution.
+        :param condition: Path to condition numpy file.
         :return: Transformed sample and log abs det Jacobian.
         """
-        self.log_det = []
-        for b in range(len(self.bijectors)):
-            x = self.bijectors[b](x)
-            if b > 0:
-                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
-        return x, self.log_det
+        if condition is not None:
+            self.log_det = []
+            for b in range(len(self.bijectors)):
+                x = self.bijectors[b](x, condition)
+                if b > 0:
+                    self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x, condition))
+            return x, self.log_det
+        else:
+            self.log_det = []
+            for b in range(len(self.bijectors)):
+                x = self.bijectors[b](x)
+                if b > 0:
+                    self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
+            return x, self.log_det
 
 
 class GNFFlowModel(nn.Module):

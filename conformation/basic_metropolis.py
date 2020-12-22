@@ -10,6 +10,7 @@ from tap import Tap
 from tqdm import tqdm
 
 from conformation.funnel_sampler import funnel_pdf, funnel_sample
+from conformation.gmm_sampler import gmm_pdf, gmm_sample
 
 
 class Args(Tap):
@@ -18,7 +19,7 @@ class Args(Tap):
     """
     num_samples: int = 1000  # Number of samples
     proposal_std: float = 0.1  # Isotropic MCMC proposal std
-    target_distribution: Literal["funnel"] = "funnel"  # Target distribution for MCMC sampling
+    target_distribution: Literal["funnel", "gmm"] = "funnel"  # Target distribution for MCMC sampling
     num_funnel_x_vars: int = 9  # Number of x variables for funnel
     subsample_frequency: int = 100  # Subsample frequency
     log_frequency: int = 1000  # Log frequency
@@ -42,13 +43,20 @@ def basic_metropolis(args: Args, logger: Logger) -> None:
     if args.target_distribution == "funnel":
         target_pdf = funnel_pdf
         target_sample = funnel_sample
+    elif args.target_distribution == "gmm":
+        target_pdf = gmm_pdf
+        target_sample = gmm_sample
 
     # Samples list
     samples = []
 
     # Generate an initial sample from the base space
-    # noinspection PyUnboundLocalVariable
-    current_sample = target_sample(args.num_funnel_x_vars)
+    if args.target_distribution == "funnel":
+        # noinspection PyUnboundLocalVariable
+        current_sample = target_sample(args.num_funnel_x_vars)
+    elif args.target_distribution == "gmm":
+        # noinspection PyUnboundLocalVariable
+        current_sample = target_sample([(0, 0), (0, 10), (10, 0), (10, 10)])
     # noinspection PyUnboundLocalVariable
     current_probability = target_pdf(current_sample)
 

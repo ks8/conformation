@@ -9,5 +9,4 @@ if __name__ == '__main__':
     args = Args().parse_args()
     logger = create_logger(name='train', save_dir=args.save_dir)
     args.save(os.path.join(args.save_dir, "args.json"))
-    exit()
     run_basic_nf_training(args, logger)

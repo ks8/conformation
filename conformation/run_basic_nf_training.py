@@ -17,7 +17,7 @@ from conformation.dataset import BasicDataset
 from conformation.flows import NormalizingFlowModel
 from conformation.model import build_model
 from conformation.train_args import Args
-from conformation.utils import save_checkpoint, load_checkpoint, param_count, loss_func
+from conformation.utils import save_checkpoint, load_checkpoint, param_count, loss_func, loss_func_cnf
 
 
 def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: Args, logger: Logger,
@@ -45,10 +45,20 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
         if args.cuda:
             # noinspection PyUnresolvedReferences
             with torch.cuda.device(args.gpu_device):
-                batch = batch.cuda()
+                if args.conditional or args.conditional_concat:
+                    batch = (batch[0].cuda(), batch[1].cuda())
+                else:
+                    batch = batch.cuda()
         model.zero_grad()
-        z, log_jacobians = model(batch)
-        loss = loss_func(z, log_jacobians, model.base_dist)
+        if args.conditional:
+            z, log_jacobians, means = model(batch[0], batch[1])
+            loss = loss_func_cnf(z, log_jacobians, means, args.gpu_device)
+        elif args.conditional_concat:
+            z, log_jacobians = model(batch[0], batch[1])
+            loss = loss_func(z, log_jacobians, model.base_dist)
+        else:
+            z, log_jacobians = model(batch)
+            loss = loss_func(z, log_jacobians, model.base_dist)
         loss_sum += loss.item()
         total_loss += loss_sum
         iter_count += args.batch_size
@@ -84,7 +94,7 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     # Load datasets
     debug('Loading data')
     metadata = json.load(open(args.data_path))
-    train_data = BasicDataset(metadata)
+    train_data = BasicDataset(metadata, args.conditional or args.conditional_concat)
 
     # Dataset lengths
     train_data_length = len(train_data)

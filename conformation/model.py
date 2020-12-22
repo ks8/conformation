@@ -7,32 +7,42 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
 
 from conformation.flows import NormalizingFlowModel, GNFFlowModel
-from conformation.flows import RealNVP, GRevNet
+from conformation.flows import RealNVP, GRevNet, CNF
 from conformation.relational import RelationalNetwork
 from conformation.train_args import Args
 from conformation.train_args_relational import Args as TrainArgsRelational
 
 
-def nets(input_dim: int, hidden_size: int) -> nn.Sequential:
+def nets(input_dim: int, hidden_size: int, output_dim: int = None) -> nn.Sequential:
     """
     RealNVP "s" neural network definition.
     :param input_dim: Data input dimension.
     :param hidden_size: Neural network hidden size.
+    :param output_dim: Output dimension.
     :return: nn.Sequential neural network.
     """
+    if output_dim is not None:
+        out = output_dim
+    else:
+        out = input_dim
     return nn.Sequential(nn.Linear(input_dim, hidden_size), nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size),
-                         nn.LeakyReLU(), nn.Linear(hidden_size, input_dim), nn.Tanh())
+                         nn.LeakyReLU(), nn.Linear(hidden_size, out), nn.Tanh())
 
 
-def nett(input_dim: int, hidden_size: int) -> nn.Sequential:
+def nett(input_dim: int, hidden_size: int, output_dim: int = None) -> nn.Sequential:
     """
     RealNVP "t" neural network definition.
     :param input_dim: Data input dimension.
     :param hidden_size: Neural network hidden size.
+    :param output_dim: Output dimension.
     :return: nn.Sequential neural network.
     """
+    if output_dim is not None:
+        out = output_dim
+    else:
+        out = input_dim
     return nn.Sequential(nn.Linear(input_dim, hidden_size), nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size),
-                         nn.LeakyReLU(), nn.Linear(hidden_size, input_dim))
+                         nn.LeakyReLU(), nn.Linear(hidden_size, out))
 
 
 def build_model(args: Args) -> NormalizingFlowModel:
@@ -51,19 +61,36 @@ def build_model(args: Args) -> NormalizingFlowModel:
     base_dist = MultivariateNormal(torch.zeros(args.input_dim, device=device), torch.eye(args.input_dim, device=device))
 
     # Form the network layers
-    biject = []
-    for i in range(args.num_layers):
-        if i % 2 == 0:
-            biject.append(RealNVP(nets(args.input_dim, args.hidden_size), nett(args.input_dim, args.hidden_size),
-                                  torch.from_numpy(np.array([j < int(args.input_dim/2) for j in
+    if args.conditional_concat:
+        biject = []
+        for i in range(args.num_layers):
+            if i % 2 == 0:
+                biject.append(CNF(nets(args.input_dim + args.condition_dim, args.hidden_size, args.input_dim),
+                                  nett(args.input_dim + args.condition_dim, args.hidden_size, args.input_dim),
+                                  torch.from_numpy(np.array([j < int(args.input_dim / 2) for j in
                                                              range(args.input_dim)]).astype(np.float32))))
-        else:
-            biject.append(RealNVP(nets(args.input_dim, args.hidden_size), nett(args.input_dim, args.hidden_size),
-                                  torch.from_numpy(np.array([j >= int(args.input_dim/2) for j in
+            else:
+                biject.append(CNF(nets(args.input_dim + args.condition_dim, args.hidden_size, args.input_dim),
+                                  nett(args.input_dim + args.condition_dim, args.hidden_size, args.input_dim),
+                                  torch.from_numpy(np.array([j >= int(args.input_dim / 2) for j in
                                                              range(args.input_dim)]).astype(np.float32))))
+    else:
+        biject = []
+        for i in range(args.num_layers):
+            if i % 2 == 0:
+                biject.append(RealNVP(nets(args.input_dim, args.hidden_size), nett(args.input_dim, args.hidden_size),
+                                      torch.from_numpy(np.array([j < int(args.input_dim / 2) for j in
+                                                                 range(args.input_dim)]).astype(np.float32))))
+            else:
+                biject.append(RealNVP(nets(args.input_dim, args.hidden_size), nett(args.input_dim, args.hidden_size),
+                                      torch.from_numpy(np.array([j >= int(args.input_dim / 2) for j in
+                                                                 range(args.input_dim)]).astype(np.float32))))
 
     if args.conditional:
-        return NormalizingFlowModel(biject, conditional=True)
+        return NormalizingFlowModel(biject, conditional=True, condition_dim=args.condition_dim,
+                                    output_dim=args.output_dim)
+    elif args.conditional_concat:
+        return NormalizingFlowModel(biject, base_dist, conditional_concat=True)
     else:
         return NormalizingFlowModel(biject, base_dist)
 
@@ -81,7 +108,7 @@ def build_gnf_model(args: TrainArgsRelational) -> GNFFlowModel:
 
     # Define the base distribution
     base_dist = MultivariateNormal(torch.zeros(1, device=device), torch.eye(1, device=device))
-    
+
     # Form the network layers
     biject = []
     for i in range(args.num_layers):

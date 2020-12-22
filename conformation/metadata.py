@@ -31,6 +31,7 @@ class Args(Tap):
     autoencoder: bool = False  # Whether or not to produce metadata for graph neural network autoencoder training
     cnf: bool = False  # Whether or not to produce metadata for conditional normalizing flow training
     gnf: bool = False  # Whether or not to produce metadata for graph normalizing flow training
+    gmm: bool = False  # Whether or not to produce metadata for gmm toy example
     graph_model_path: str = None  # Path to saved graph model (cnf = True)
     smiles_dir: str = None  # Path to directory containing smiles strings (mpnn or cnf = True)
     binary_dir: str = None  # Path to directory containing RDKit mol binary files (mpnn = True)
@@ -372,6 +373,11 @@ def metadata(args: Args) -> None:
                     conditional_dict[molecule_name] = os.path.join(args.save_dir, "conditions", molecule_name + ".npy")
 
                 data.append({'smiles': smiles, 'path': path, 'condition': conditional_dict[molecule_name]})
+            elif args.gmm:
+                if f[:5] == "gmm_s":
+                    path = os.path.join(root, f)
+                    condition_path = os.path.join(root, "gmm_conditions_" + f[12:-4] + ".npy")
+                    data.append({'path': path, 'condition': condition_path})
             else:
                 data.append({'path': path})
     if len(uid_dict) > 0:

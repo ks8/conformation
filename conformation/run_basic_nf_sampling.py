@@ -26,8 +26,6 @@ class Args(Tap):
     conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
     conditional_concat: bool = False  # Whether or not to use conditional concat NF
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
-    epsilon: float = 0.25  # Leapfrog step size
-    L: int = 20  # Number of leapfrog steps
     num_layers: int = 10  # Number of RealNVP layers
     num_samples: int = 1000  # Number of samples
     base_dim: int = 10  # Dimension of the base distribution
@@ -37,30 +35,6 @@ class Args(Tap):
     log_frequency: int = 1000  # Log frequency
     cuda: bool = False  # Whether or not to use cuda
     save_dir: str = None  # Save directory
-
-
-def normal_pdf_pytorch(x: float, mean: float, std: float) -> torch.Tensor:
-    """
-    Compute PDF value of normal distribution.
-    :param x: Input value.
-    :param mean: Mean of distribution.
-    :param std: Standard deviation of distribution.
-    :return: PDF value.
-    """
-    return (1./(std*torch.sqrt(torch.tensor([2*math.pi]))))*torch.exp(torch.tensor([-0.5*((x - mean)/std)**2]))
-
-
-def neg_log_pdf_funnel_pytorch(x: torch.tensor) -> torch.Tensor:
-    """
-    Compute negative log of the pdf value of x under the funnel distribution.
-    :param x: Sample to evaluate.
-    :return: Negative log value.
-    """
-    neg_log_pdf = normal_pdf_pytorch(x[0], 0, 3)
-    for i in range(1, x.size()[0]):
-        neg_log_pdf *= normal_pdf_pytorch(x[i], 0, torch.exp(torch.tensor([x[0] / 2])).item())
-    neg_log_pdf = -1.*torch.log(neg_log_pdf)
-    return neg_log_pdf
 
 
 def run_basic_nf_sampling(args: Args, logger: Logger) -> None:

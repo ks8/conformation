@@ -160,102 +160,56 @@ class RealNVP(nn.Module):
         self.t = nett
         self.s = nets
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    def forward(self, z: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
         Transform a sample from the base distribution or previous layer.
         :param z: Sample from the base distribution or previous layer.
+        :param c: Condition vector for conditional concat flow.
         :return: Processed sample (in the direction towards the target distribution).
         """
         x = z
         x_ = x * self.mask
-        s = self.s(x_) * (1 - self.mask)
-        t = self.t(x_) * (1 - self.mask)
+        if c is not None:
+            s = self.s(torch.cat((x_, c), 1)) * (1 - self.mask)
+            t = self.t(torch.cat((x_, c), 1)) * (1 - self.mask)
+        else:
+            s = self.s(x_) * (1 - self.mask)
+            t = self.t(x_) * (1 - self.mask)
         x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
         return x
 
-    def inverse(self, x: torch.Tensor) -> torch.Tensor:
+    def inverse(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
         Compute the inverse of a target sample or a sample from the next layer.
         :param x: Sample from the target distribution or the next layer.
+        :param c: Condition vector for conditional concat flow.
         :return: Inverse sample (in the direction towards the base distribution).
         """
         log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
-        s = self.s(z_) * (1 - self.mask)
-        t = self.t(z_) * (1 - self.mask)
+        if c is not None:
+            s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+            t = self.t(torch.cat((z_, c), 1)) * (1 - self.mask)
+        else:
+            s = self.s(z_) * (1 - self.mask)
+            t = self.t(z_) * (1 - self.mask)
         z = (1 - self.mask) * (z - t) * torch.exp(-s) + z_
         return z
 
-    def log_abs_det_jacobian(self, x: torch.Tensor) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
         Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
         direction.
         :param x: Sample.
+        :param c: Condition vector for conditional concat flow.
         :return: log abs det jacobian.
         """
         log_det_j, z = x.new_zeros(x.shape[0]), x
         z_ = self.mask * z
-        s = self.s(z_) * (1 - self.mask)
-        log_det_j += s.sum(dim=1)
-        return log_det_j
-
-
-class CNF(nn.Module):
-    """
-    Performs a single layer of the RealNVP flow.
-    """
-
-    def __init__(self, nets: nn.Sequential, nett: nn.Sequential, mask: torch.Tensor) -> None:
-        """
-        :param nets: "s" neural network definition.
-        :param nett: "t" neural network definition.
-        :param mask: Mask identifying which components of the vector will be processed together in any given layer.
-        :return: None.
-        """
-        super(CNF, self).__init__()
-        self.mask = nn.Parameter(mask, requires_grad=False)
-        self.t = nett
-        self.s = nets
-
-    def forward(self, z: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """
-        Transform a sample from the base distribution or previous layer.
-        :param z: Sample from the base distribution or previous layer.
-        :param c: Condition.
-        :return: Processed sample (in the direction towards the target distribution).
-        """
-        x = z
-        x_ = x * self.mask
-        s = self.s(torch.cat((x_, c), 1)) * (1 - self.mask)
-        t = self.t(torch.cat((x_, c), 1)) * (1 - self.mask)
-        x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
-        return x
-
-    def inverse(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the inverse of a target sample or a sample from the next layer.
-        :param x: Sample from the target distribution or the next layer.
-        :param c: Condition.
-        :return: Inverse sample (in the direction towards the base distribution).
-        """
-        log_det_j, z = x.new_zeros(x.shape[0]), x
-        z_ = self.mask * z
-        s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
-        t = self.t(torch.cat((z_, c), 1)) * (1 - self.mask)
-        z = (1 - self.mask) * (z - t) * torch.exp(-s) + z_
-        return z
-
-    def log_abs_det_jacobian(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the logarithm of the absolute value of the determinant of the Jacobian for a sample in the forward
-        direction.
-        :param x: Sample.
-        :param c: Condition.
-        :return: log abs det jacobian.
-        """
-        log_det_j, z = x.new_zeros(x.shape[0]), x
-        z_ = self.mask * z
-        s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+        if c is not None:
+            s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+        else:
+            s = self.s(z_) * (1 - self.mask)
         log_det_j += s.sum(dim=1)
         return log_det_j
 

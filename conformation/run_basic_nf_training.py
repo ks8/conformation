@@ -82,6 +82,9 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     :param logger: Logging.
     :return: None.
     """
+    assert(not args.conditional_concat or not args.conditional_base)
+    assert(args.num_internal_layers > 1)
+
     os.makedirs(os.path.join(args.save_dir, "checkpoints"))
     args.cuda = torch.cuda.is_available()
 

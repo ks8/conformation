@@ -44,11 +44,13 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
     :param logger: System logger.
     :return: None.
     """
+    assert (not args.conditional_concat or not args.conditional_base)
+
     # Set up logger
     debug, info = logger.debug, logger.info
 
     args.cuda = torch.cuda.is_available()
-    print(args)
+    debug(args)
 
     # Load model
     if args.checkpoint_path is not None:

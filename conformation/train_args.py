@@ -25,6 +25,7 @@ class Args(Tap):
     #  distribution. Use base_output_dim=1 for previous molecule work, otherwise base_output_dim should be set to
     #  input_dim (conditional_base = True)
     hidden_size: int = 256  # Hidden size for flow layers
+    num_internal_layers: int = 3  # Number of linear layers for the neural networks that comprise each flow layer
     base_hidden_size: int = 1024  # Hidden size for feedforward network that produces the mean vector for the base
     # distribution (conditional_base = True)
     log_frequency: int = 10  # Log frequency

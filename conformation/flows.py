@@ -156,26 +156,36 @@ class RealNVP(nn.Module):
         :return: None.
         """
         super(RealNVP, self).__init__()
-        self.mask = nn.Parameter(mask, requires_grad=False)
+        self.mask = mask
+        self.constant_mask = [i == 1 for i in self.mask]
+        self.modified_mask = [i == 0 for i in self.mask]
         self.t = nett
         self.s = nets
 
-    def forward(self, z: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
         Transform a sample from the base distribution or previous layer.
-        :param z: Sample from the base distribution or previous layer.
+        :param x: Sample from the base distribution or previous layer.
         :param c: Condition vector for conditional concat flow.
         :return: Processed sample (in the direction towards the target distribution).
         """
-        x = z
-        x_ = x * self.mask
+        constant = x[:, self.constant_mask]
+        modified = x[:, self.modified_mask]
         if c is not None:
-            s = self.s(torch.cat((x_, c), 1)) * (1 - self.mask)
-            t = self.t(torch.cat((x_, c), 1)) * (1 - self.mask)
+            concat = torch.cat((constant, c), 1)
+            s = self.s(concat)
+            t = self.t(concat)
         else:
-            s = self.s(x_) * (1 - self.mask)
-            t = self.t(x_) * (1 - self.mask)
-        x = x_ + (1 - self.mask) * (x * torch.exp(s) + t)
+            s = self.s(constant)
+            t = self.t(constant)
+
+        modified = modified*torch.exp(s) + t
+
+        if self.mask[0] == 0:
+            x = torch.cat((modified, constant), 1)
+        else:
+            x = torch.cat((constant, modified), 1)
+
         return x
 
     def inverse(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
@@ -185,16 +195,24 @@ class RealNVP(nn.Module):
         :param c: Condition vector for conditional concat flow.
         :return: Inverse sample (in the direction towards the base distribution).
         """
-        log_det_j, z = x.new_zeros(x.shape[0]), x
-        z_ = self.mask * z
+        constant = x[:, self.constant_mask]
+        modified = x[:, self.modified_mask]
         if c is not None:
-            s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
-            t = self.t(torch.cat((z_, c), 1)) * (1 - self.mask)
+            concat = torch.cat((constant, c), 1)
+            s = self.s(concat)
+            t = self.t(concat)
         else:
-            s = self.s(z_) * (1 - self.mask)
-            t = self.t(z_) * (1 - self.mask)
-        z = (1 - self.mask) * (z - t) * torch.exp(-s) + z_
-        return z
+            s = self.s(constant)
+            t = self.t(constant)
+
+        modified = (modified - t)*torch.exp(-s)
+
+        if self.mask[0] == 0:
+            x = torch.cat((modified, constant), 1)
+        else:
+            x = torch.cat((constant, modified), 1)
+
+        return x
 
     def log_abs_det_jacobian(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
@@ -204,13 +222,15 @@ class RealNVP(nn.Module):
         :param c: Condition vector for conditional concat flow.
         :return: log abs det jacobian.
         """
-        log_det_j, z = x.new_zeros(x.shape[0]), x
-        z_ = self.mask * z
+        log_det_j = x.new_zeros(x.shape[0])
+        constant = x[:, self.constant_mask]
         if c is not None:
-            s = self.s(torch.cat((z_, c), 1)) * (1 - self.mask)
+            s = self.s(torch.cat((constant, c), 1))
         else:
-            s = self.s(z_) * (1 - self.mask)
+            s = self.s(constant)
+
         log_det_j += s.sum(dim=1)
+
         return log_det_j
 
 

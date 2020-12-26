@@ -1,5 +1,6 @@
 """ Neural network module definitions for normalizing flows. """
 import numpy as np
+from typing_extensions import Literal
 
 import torch
 # noinspection PyUnresolvedReferences
@@ -13,13 +14,15 @@ from conformation.train_args import Args
 from conformation.train_args_relational import Args as TrainArgsRelational
 
 
-def nets(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: int = 3) -> nn.Sequential:
+def net(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: int = 3,
+        layer_type: Literal["s", "t"] = "s") -> nn.Sequential:
     """
-    RealNVP "s" neural network definition.
+    RealNVP neural network definition.
     :param input_dim: Data input dimension.
     :param hidden_size: Neural network hidden size.
     :param output_dim: Output dimension.
     :param num_layers: Number of linear layers.
+    :param layer_type: "s" vs "t" type layer.
     :return: nn.Sequential neural network.
     """
     if output_dim is not None:
@@ -33,31 +36,8 @@ def nets(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: i
             ffn.extend([nn.LeakyReLU(), nn.Linear(hidden_size, out)])
         else:
             ffn.extend([nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size)])
-    ffn.extend([nn.Tanh()])
-
-    return nn.Sequential(*ffn)
-
-
-def nett(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: int = 3) -> nn.Sequential:
-    """
-    RealNVP "t" neural network definition.
-    :param input_dim: Data input dimension.
-    :param hidden_size: Neural network hidden size.
-    :param output_dim: Output dimension.
-    :param num_layers: Number of linear layers.
-    :return: nn.Sequential neural network.
-    """
-    if output_dim is not None:
-        out = output_dim
-    else:
-        out = input_dim
-
-    ffn = [nn.Linear(input_dim, hidden_size)]
-    for i in range(num_layers - 1):
-        if i == num_layers - 2:
-            ffn.extend([nn.LeakyReLU(), nn.Linear(hidden_size, out)])
-        else:
-            ffn.extend([nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size)])
+    if layer_type == "s":
+        ffn.extend([nn.Tanh()])
 
     return nn.Sequential(*ffn)
 
@@ -93,8 +73,9 @@ def build_model(args: Args) -> NormalizingFlowModel:
             nn_input_dim = int(sum(mask).item())
             nn_output_dim = None
 
-        biject.append(RealNVP(nets(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers),
-                              nett(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers),
+        # noinspection PyArgumentEqualDefault
+        biject.append(RealNVP(net(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers, "s"),
+                              net(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers, "t"),
                               mask))
 
     return NormalizingFlowModel(biject, base_dist, args.conditional_base, args.input_dim, args.condition_dim,

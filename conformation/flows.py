@@ -162,11 +162,13 @@ class RealNVP(nn.Module):
         self.t = nett
         self.s = nets
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, c: torch.Tensor = None, compute_log_det_j: bool = False) -> \
+            Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Transform a sample from the base distribution or previous layer.
         :param x: Sample from the base distribution or previous layer.
         :param c: Condition vector for conditional concat flow.
+        :param compute_log_det_j: Whether or not to compute log det Jacobian.
         :return: Processed sample (in the direction towards the target distribution).
         """
         constant = x[:, self.constant_mask]
@@ -186,15 +188,21 @@ class RealNVP(nn.Module):
         else:
             x = torch.cat((constant, modified), 1)
 
-        return x
+        if compute_log_det_j:
+            log_det_j = x.new_zeros(x.shape[0])
+            log_det_j += s.sum(dim=1)
+            return x, log_det_j
+        else:
+            return x
 
-    def inverse(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
+    def inverse(self, x: torch.Tensor, c: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Compute the inverse of a target sample or a sample from the next layer.
         :param x: Sample from the target distribution or the next layer.
         :param c: Condition vector for conditional concat flow.
         :return: Inverse sample (in the direction towards the base distribution).
         """
+        log_det_j = x.new_zeros(x.shape[0])
         constant = x[:, self.constant_mask]
         modified = x[:, self.modified_mask]
         if c is not None:
@@ -212,7 +220,9 @@ class RealNVP(nn.Module):
         else:
             x = torch.cat((constant, modified), 1)
 
-        return x
+        log_det_j += s.sum(dim=1)
+
+        return x, log_det_j
 
     def log_abs_det_jacobian(self, x: torch.Tensor, c: torch.Tensor = None) -> torch.Tensor:
         """
@@ -282,25 +292,22 @@ class NormalizingFlowModel(nn.Module):
         self.log_det = []  # Accumulate the log abs det jacobians of the transformations
         for b in range(len(self.bijectors) - 1, -1, -1):
             if self.conditional_concat:
-                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x, c))
-                x = self.bijectors[b].inverse(x, c)
+                x, log_det_j = self.bijectors[b].inverse(x, c)
             else:
-                self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
-                x = self.bijectors[b].inverse(x)
+                x, log_det_j = self.bijectors[b].inverse(x)
+            self.log_det.append(log_det_j)
         if self.conditional_base:
             u = self.output_layer(self.linear_layer(c))
             return x, self.log_det, u
         else:
             return x, self.log_det
 
-    def sample(self, sample_layers: int, condition: torch.Tensor = None, cuda: bool = False,
-               conditional_concat: bool = False) -> torch.Tensor:
+    def sample(self, sample_layers: int, condition: torch.Tensor = None, cuda: bool = False) -> torch.Tensor:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
         :param sample_layers: Number of layers to use for sampling.
         :param condition: Path to condition numpy file.
         :param cuda: Whether or not to use GPU.
-        :param conditional_concat: Conditional concat scheme.
         :return: Sample from the approximate target distribution.
         """
         if cuda:
@@ -309,7 +316,7 @@ class NormalizingFlowModel(nn.Module):
             device = torch.device('cpu')
 
         if condition is not None:
-            if conditional_concat:
+            if self.conditional_concat:
                 base_dist = self.base_dist
             else:
                 if self.padding:
@@ -327,8 +334,8 @@ class NormalizingFlowModel(nn.Module):
             base_dist = self.base_dist
 
         x = base_dist.sample()
-        if conditional_concat:
-            x = x.unsqueeze(0)
+        x = x.unsqueeze(0)
+        if self.conditional_concat:
             for b in range(sample_layers):
                 # noinspection PyUnboundLocalVariable
                 x = self.bijectors[b](x, condition.unsqueeze(0))  # Process a sample through the flow
@@ -349,16 +356,11 @@ class NormalizingFlowModel(nn.Module):
         if condition is not None:
             self.log_det = []
             for b in range(len(self.bijectors)):
-                x = self.bijectors[b](x, condition)
-                if b > 0:
-                    self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x, condition))
-            return x, self.log_det
-        else:
-            self.log_det = []
-            for b in range(len(self.bijectors)):
-                x = self.bijectors[b](x)
-                if b > 0:
-                    self.log_det.append(self.bijectors[b].log_abs_det_jacobian(x))
+                if b == 0:
+                    x = self.bijectors[b](x, condition)
+                else:
+                    x, log_det_j = self.bijectors[b](x, condition, compute_log_det_j=True)
+                    self.log_det.append(log_det_j)
             return x, self.log_det
 
 

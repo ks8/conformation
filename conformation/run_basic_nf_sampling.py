@@ -23,8 +23,8 @@ class Args(Tap):
     """
     checkpoint_path: str  # Path to saved model checkpoint file
     mcmc: bool = False  # Whether or not to do MCMC-driven sampling
-    conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
-    conditional_concat: bool = False  # Whether or not to use conditional concat NF
+    # conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
+    # conditional_concat: bool = False  # Whether or not to use conditional concat NF
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
     num_layers: int = 10  # Number of RealNVP layers
     num_samples: int = 1000  # Number of samples
@@ -44,7 +44,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
     :param logger: System logger.
     :return: None.
     """
-    assert (not args.conditional_concat or not args.conditional_base)
+    # assert (not args.conditional_concat or not args.conditional_base)
 
     # Set up logger
     debug, info = logger.debug, logger.info
@@ -83,11 +83,12 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                 samples = []
 
                 # Define the base distribution
-                if args.conditional_base:
+                if model.conditional_base:
                     condition = np.load(args.condition_path)
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
-                    condition = condition.cuda()
+                    if args.cuda:
+                        condition = condition.cuda()
                     u = model.output_layer(model.linear_layer(condition))
                     u = u.cpu().numpy()
                     rv = scipy.stats.multivariate_normal(mean=u, cov=np.ones(args.base_dim))
@@ -102,11 +103,12 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
 
                 # Transform the sample to one from the target space and compute the list of absolute value of Jacobian
                 # determinants
-                if args.conditional_concat:
+                if model.conditional_concat:
                     condition = np.load(args.condition_path)
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
-                    condition = condition.cuda()
+                    if args.cuda:
+                        condition = condition.cuda()
                     current_target_sample, log_det = \
                         model.forward_pass_with_log_abs_det_jacobian(z, condition.unsqueeze(0))
                 else:
@@ -134,7 +136,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
 
                     # Transform the sample to one from the target space and compute the list of absolute value of
                     # Jacobian determinants
-                    if args.conditional_concat:
+                    if model.conditional_concat:
                         proposed_target_sample, log_det = \
                             model.forward_pass_with_log_abs_det_jacobian(z, condition.unsqueeze(0))
                     else:
@@ -168,7 +170,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                         debug(f'Steps completed: {step}, acceptance percentage: {acceptance_percentage}')
                 end_time = time.time()
                 debug(f'Total Time (s): {end_time - start_time}')
-                debug(f'% Moves Accepted: {num_accepted / args.num_samples}')
+                debug(f'% Moves Accepted: {num_accepted / args.num_samples * 100.}')
 
                 # Save samples
                 samples = np.array(samples)
@@ -179,14 +181,15 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
             with torch.no_grad():
                 model.eval()
                 samples = []
-                if args.conditional_base or args.conditional_concat:
+                if model.conditional_base or model.conditional_concat:
                     condition = np.load(args.condition_path)
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
-                    condition = condition.cuda()
+                    if args.cuda:
+                        condition = condition.cuda()
                 for _ in tqdm(range(args.num_samples)):
-                    if args.conditional_base or args.conditional_concat:
-                        gen_sample = model.sample(args.num_layers, condition, args.cuda, args.conditional_concat)
+                    if model.conditional_base or model.conditional_concat:
+                        gen_sample = model.sample(args.num_layers, condition, args.cuda)
                     else:
                         gen_sample = model.sample(args.num_layers)
                     samples.append(gen_sample.cpu().numpy())

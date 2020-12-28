@@ -2,6 +2,7 @@
 import json
 from logging import Logger
 import os
+import time
 from typing import Tuple
 
 from tensorboardX import SummaryWriter
@@ -127,6 +128,7 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     summary_writer = SummaryWriter(logdir=args.save_dir)
     best_epoch, n_iter = 0, 0
     best_loss = float('inf')
+    start_time = time.time()
     for epoch in trange(args.num_epochs):
         n_iter, total_loss = train(model, optimizer, train_data, args, logger, n_iter, summary_writer)
         debug(f"Epoch {epoch} total loss = {total_loss:.4e}")
@@ -136,5 +138,6 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
             save_checkpoint(model, args, os.path.join(args.save_dir, "checkpoints", 'best.pt'))
             best_loss = total_loss
             best_epoch = epoch
-
+    end_time = time.time()
+    debug(f'Total Time (s): {end_time - start_time}')
     debug(f"Best epoch: {best_epoch} with total loss = {best_loss:.4e}")

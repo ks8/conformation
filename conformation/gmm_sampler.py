@@ -78,7 +78,7 @@ def gmm_sampler(args: Args):
     os.makedirs(args.save_dir)
 
     counter = 0
-    for i in range(10):
+    for i in range(100):
         # Define the grid of possible centers
         centers_list = []
         v = np.linspace(args.origin + 2.*i, args.origin + 2.*i + args.max_len, args.num_len_partitions)

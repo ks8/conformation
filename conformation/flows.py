@@ -6,6 +6,7 @@ from typing import List, Tuple, Union
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 import torch.nn as nn
+from tqdm import tqdm
 
 from conformation.batch import Batch
 from conformation.relational import RelationalNetwork
@@ -269,8 +270,8 @@ class NormalizingFlowModel(nn.Module):
         self.log_det = []
         self.conditional_base = conditional_base
         self.conditional_concat = conditional_concat
+        self.input_dim = input_dim
         if self.conditional_base:
-            self.input_dim = input_dim
             self.condition_dim = condition_dim
             self.base_hidden_size = base_hidden_size
             self.base_output_dim = base_output_dim
@@ -302,12 +303,12 @@ class NormalizingFlowModel(nn.Module):
         else:
             return x, self.log_det
 
-    def sample(self, sample_layers: int, condition: torch.Tensor = None, cuda: bool = False) -> torch.Tensor:
+    def sample(self, num_samples: int = 1000, cuda: bool = False, condition: torch.Tensor = None) -> np.ndarray:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
-        :param sample_layers: Number of layers to use for sampling.
-        :param condition: Path to condition numpy file.
+        :param num_samples: Number of samples to generate.
         :param cuda: Whether or not to use GPU.
+        :param condition: Path to condition numpy file.
         :return: Sample from the approximate target distribution.
         """
         if cuda:
@@ -333,16 +334,20 @@ class NormalizingFlowModel(nn.Module):
         else:
             base_dist = self.base_dist
 
-        x = base_dist.sample()
-        x = x.unsqueeze(0)
-        if self.conditional_concat:
-            for b in range(sample_layers):
-                # noinspection PyUnboundLocalVariable
-                x = self.bijectors[b](x, condition.unsqueeze(0))  # Process a sample through the flow
-        else:
-            for b in range(sample_layers):
-                x = self.bijectors[b](x)  # Process a sample through the flow
-        return x
+        samples = []
+        for _ in tqdm(range(num_samples)):
+            x = base_dist.sample()
+            x = x.unsqueeze(0)
+            if self.conditional_concat:
+                for b in range(len(self.bijectors)):
+                    # noinspection PyUnboundLocalVariable
+                    x = self.bijectors[b](x, condition.unsqueeze(0))  # Process a sample through the flow
+            else:
+                for b in range(len(self.bijectors)):
+                    x = self.bijectors[b](x)  # Process a sample through the flow
+            samples.append(x.cpu().numpy())
+        samples = np.array(samples)
+        return samples
 
     def forward_pass_with_log_abs_det_jacobian(self, x: torch.Tensor, condition: torch.Tensor = None) -> \
             Tuple[torch.Tensor, List]:
@@ -353,15 +358,14 @@ class NormalizingFlowModel(nn.Module):
         :param condition: Path to condition numpy file.
         :return: Transformed sample and log abs det Jacobian.
         """
-        if condition is not None:
-            self.log_det = []
-            for b in range(len(self.bijectors)):
-                if b == 0:
-                    x = self.bijectors[b](x, condition)
-                else:
-                    x, log_det_j = self.bijectors[b](x, condition, compute_log_det_j=True)
-                    self.log_det.append(log_det_j)
-            return x, self.log_det
+        self.log_det = []
+        for b in range(len(self.bijectors)):
+            if b == 0:
+                x = self.bijectors[b](x, condition)
+            else:
+                x, log_det_j = self.bijectors[b](x, condition, compute_log_det_j=True)
+                self.log_det.append(log_det_j)
+        return x, self.log_det
 
 
 class GNFFlowModel(nn.Module):

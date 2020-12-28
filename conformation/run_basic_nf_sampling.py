@@ -23,12 +23,8 @@ class Args(Tap):
     """
     checkpoint_path: str  # Path to saved model checkpoint file
     mcmc: bool = False  # Whether or not to do MCMC-driven sampling
-    # conditional_base: bool = False  # Whether or not to use a conditional normalizing flow
-    # conditional_concat: bool = False  # Whether or not to use conditional concat NF
     condition_path: str = None  # Path to condition numpy file for conditional normalizing flow
-    num_layers: int = 10  # Number of RealNVP layers
     num_samples: int = 1000  # Number of samples
-    base_dim: int = 10  # Dimension of the base distribution
     proposal_std: float = 0.1  # Isotropic MCMC proposal std
     target_distribution: Literal["funnel", "perturbed_funnel", "gmm"] = "funnel"  # Target for MCMC sampling
     subsample_frequency: int = 100  # Subsample frequency
@@ -44,8 +40,6 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
     :param logger: System logger.
     :return: None.
     """
-    # assert (not args.conditional_concat or not args.conditional_base)
-
     # Set up logger
     debug, info = logger.debug, logger.info
 
@@ -56,6 +50,8 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
     if args.checkpoint_path is not None:
         debug('Loading model from {}'.format(args.checkpoint_path))
         model = load_checkpoint(args.checkpoint_path, args.cuda)
+
+        input_dim = model.input_dim
 
         debug(model)
         debug('Number of parameters = {:,}'.format(param_count(model)))
@@ -91,9 +87,9 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                         condition = condition.cuda()
                     u = model.output_layer(model.linear_layer(condition))
                     u = u.cpu().numpy()
-                    rv = scipy.stats.multivariate_normal(mean=u, cov=np.ones(args.base_dim))
+                    rv = scipy.stats.multivariate_normal(mean=u, cov=np.ones(input_dim))
                 else:
-                    rv = scipy.stats.multivariate_normal(mean=np.zeros(args.base_dim), cov=np.ones(args.base_dim))
+                    rv = scipy.stats.multivariate_normal(mean=np.zeros(input_dim), cov=np.ones(input_dim))
 
                 # Generate an initial sample from the base space
                 current_base_sample = np.array([rv.rvs(1)])
@@ -129,7 +125,7 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
                 for step in tqdm(range(args.num_samples)):
                     # Generate an isotropic proposal in the base space
                     proposed_base_sample = np.array([current_base_sample[0] +
-                                                     np.random.normal(0, args.proposal_std, args.base_dim)])
+                                                     np.random.normal(0, args.proposal_std, input_dim)])
                     z = torch.from_numpy(proposed_base_sample).type(torch.float32)
                     if args.cuda:
                         z = z.cuda()
@@ -180,20 +176,16 @@ def run_basic_nf_sampling(args: Args, logger: Logger) -> None:
             debug("Starting NF sampling...")
             with torch.no_grad():
                 model.eval()
-                samples = []
                 if model.conditional_base or model.conditional_concat:
                     condition = np.load(args.condition_path)
                     condition = torch.from_numpy(condition)
                     condition = condition.type(torch.float32)
                     if args.cuda:
                         condition = condition.cuda()
-                for _ in tqdm(range(args.num_samples)):
-                    if model.conditional_base or model.conditional_concat:
-                        gen_sample = model.sample(args.num_layers, condition, args.cuda)
-                    else:
-                        gen_sample = model.sample(args.num_layers)
-                    samples.append(gen_sample.cpu().numpy())
-                samples = np.array(samples)
+                    samples = model.sample(args.num_samples, args.cuda, condition)
+                else:
+                    samples = model.sample(args.num_samples, args.cuda)
+                samples = samples.squeeze(1)
                 np.save(os.path.join(args.save_dir, "samples.npy"), samples)
 
     else:

@@ -15,7 +15,7 @@ from conformation.train_args_relational import Args as TrainArgsRelational
 
 
 def net(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: int = 3,
-        layer_type: Literal["s", "t"] = "s") -> nn.Sequential:
+        layer_type: Literal["s", "t"] = "s", output_activation: Literal["tanh", "lrelu"] = "tanh") -> nn.Sequential:
     """
     RealNVP neural network definition.
     :param input_dim: Data input dimension.
@@ -23,6 +23,7 @@ def net(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: in
     :param output_dim: Output dimension.
     :param num_layers: Number of linear layers.
     :param layer_type: "s" vs "t" type layer.
+    :param output_activation: "s" network output activation function.
     :return: nn.Sequential neural network.
     """
     if output_dim is not None:
@@ -37,7 +38,10 @@ def net(input_dim: int, hidden_size: int, output_dim: int = None, num_layers: in
         else:
             ffn.extend([nn.LeakyReLU(), nn.Linear(hidden_size, hidden_size)])
     if layer_type == "s":
-        ffn.extend([nn.Tanh()])
+        if output_activation == "tanh":
+            ffn.extend([nn.Tanh()])
+        elif output_activation == "lrelu":
+            ffn.extend([nn.LeakyReLU()])
 
     return nn.Sequential(*ffn)
 
@@ -74,7 +78,8 @@ def build_model(args: Args) -> NormalizingFlowModel:
             nn_output_dim = None
 
         # noinspection PyArgumentEqualDefault
-        biject.append(RealNVP(net(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers, "s"),
+        biject.append(RealNVP(net(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers, "s",
+                                  args.s_output_activation),
                               net(nn_input_dim, args.hidden_size, nn_output_dim, args.num_internal_layers, "t"),
                               mask))
 

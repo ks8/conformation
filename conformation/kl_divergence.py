@@ -45,10 +45,12 @@ def compute_kl_divergence(data_path_1: str, data_path_2: str, nx_bins: int = 100
     hist_1 = np.histogram2d(data_1[:, 0], data_1[:, 1], bins=[nx_bins, ny_bins],
                             range=[x_range, y_range], density=True)[0].flatten()
     hist_1 = np.where(hist_1 == 0, 1e-10, hist_1)
+    hist_1 = np.where(np.isnan(hist_1), 1e-10, hist_1)
 
     hist_2 = np.histogram2d(data_2[:, 0], data_2[:, 1], bins=[nx_bins, ny_bins],
                             range=[x_range, y_range], density=True)[0].flatten()
     hist_2 = np.where(hist_2 == 0, 1e-10, hist_2)
+    hist_2 = np.where(np.isnan(hist_2), 1e-10, hist_2)
 
     kl = entropy(hist_1, hist_2)
 

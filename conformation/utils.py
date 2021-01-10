@@ -22,6 +22,19 @@ def loss_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: Mul
     return -(base_dist.log_prob(z) - sum(log_jacobians)).mean()
 
 
+def density_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: MultivariateNormal) -> torch.Tensor:
+    """
+    Density function that computes the probability of a target space point by computing the log probability of its
+    corresponding latent variable and the sum of the log abs det jacobians of the normalizing flow transformations.
+    :param z: Inverse values.
+    :param log_jacobians: Log abs det jacobians.
+    :param base_dist: Base distribution
+    :return: Model density.
+    """
+
+    return torch.exp(base_dist.log_prob(z) - sum(log_jacobians))
+
+
 def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, cuda: bool = False) -> \
         torch.Tensor:
     """

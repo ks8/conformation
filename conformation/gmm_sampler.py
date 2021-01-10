@@ -78,7 +78,7 @@ def gmm_sampler(args: Args):
     os.makedirs(args.save_dir)
 
     counter = 0
-    for i in range(100):
+    for i in range(1):
         # Define the grid of possible centers
         centers_list = []
         v = np.linspace(args.origin + 2.*i, args.origin + 2.*i + args.max_len, args.num_len_partitions)
@@ -87,6 +87,7 @@ def gmm_sampler(args: Args):
             for k in range(args.num_len_partitions):
                 centers_list.append((grid[0][j][k], grid[1][j][k]))
         assert(args.num_centers_range[1] <= len(centers_list))
+        centers_list.sort()
 
         for _ in tqdm(range(args.num_samples)):
             num_centers = np.random.choice(range(args.num_centers_range[0], args.num_centers_range[1] + 1))
@@ -97,8 +98,10 @@ def gmm_sampler(args: Args):
             np.save(os.path.join(args.save_dir, "gmm_samples_" + str(counter) + ".npy"), sample)
 
             condition = -1.*np.ones(2*args.num_centers_range[1])
-            centers_array = np.array(centers).flatten()
-            condition[:len(centers_array)] = centers_array
+            for j in range(len(centers_list)):
+                if centers_list[j] in centers:
+                    condition[2*j:2*j + 2] = centers_list[j]
+
             condition = np.concatenate((condition, to_one_hot(num_centers - 1, range(args.num_centers_range[1]))))
             np.save(os.path.join(args.save_dir, "gmm_conditions_" + str(counter) + ".npy"), condition)
             counter += 1

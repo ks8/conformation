@@ -14,6 +14,7 @@ class Args(Tap):
     checkpoint_path: str = None  # Path to PyTorch checkpoint file
     conditional_base: bool = False  # Whether or not to run a conditional base normalizing flow
     conditional_concat: bool = False  # Whether or not to run a conditional concat normalizing flow
+    covariance_factor: float = 1.0  # Multiplicative factor for the base distribution covariance matrix
     graph_model_path: str = None  # Path to saved graph model checkpoint file (conditional_base = True and using
     # molecule data)
     num_layers: int = 10  # Number of flow layers (2 layers is equivalent to one full coupling layer)

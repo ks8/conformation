@@ -35,7 +35,8 @@ def density_func(z: torch.Tensor, log_jacobians: List[torch.Tensor], base_dist: 
     return torch.exp(base_dist.log_prob(z) - sum(log_jacobians))
 
 
-def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, cuda: bool = False) -> \
+def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, cuda: bool = False,
+                  covariance_factor: float = 1.0) -> \
         torch.Tensor:
     """
     Loss function that computes the mean log probability of a training example by computing the log probability of its
@@ -44,6 +45,7 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
     :param log_jacobians: Log abs det jacobians.
     :param means: Base distribution means.
     :param cuda: Whether or not to use GPU.
+    :param covariance_factor: Multiplicative factor for the base distribution covariance matrix.
     :return: Average loss.
     """
     if cuda:
@@ -53,12 +55,42 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
 
     base_dist_list = []
     for i in range(len(means)):
-        base_dist_list.append(MultivariateNormal(means[i], torch.eye(means[i].shape[0], device=device)))
+        base_dist_list.append(MultivariateNormal(means[i],
+                                                 covariance_factor * torch.eye(means[i].shape[0], device=device)))
 
     base_log_probs = torch.zeros(len(z), device=device)
     for i in range(len(z)):
         base_log_probs[i] = base_dist_list[i].log_prob(z[i])
     return -(base_log_probs - sum(log_jacobians)).mean()
+
+
+def density_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: torch.Tensor, cuda: bool = False,
+                     covariance_factor: float = 1.0) -> \
+        torch.Tensor:
+    """
+    Loss function that computes the mean log probability of a training example by computing the log probability of its
+    corresponding latent variable and the sum of the log abs det jacobians of the normalizing flow transformations.
+    :param z: Inverse values.
+    :param log_jacobians: Log abs det jacobians.
+    :param means: Base distribution means.
+    :param cuda: Whether or not to use GPU.
+    :param covariance_factor: Multiplicative factor for the base distribution covariance matrix.
+    :return: Average loss.
+    """
+    if cuda:
+        device = torch.device(0)
+    else:
+        device = torch.device('cpu')
+
+    base_dist_list = []
+    for i in range(len(means)):
+        base_dist_list.append(MultivariateNormal(means[i],
+                                                 covariance_factor * torch.eye(means[i].shape[0], device=device)))
+
+    base_log_probs = torch.zeros(len(z), device=device)
+    for i in range(len(z)):
+        base_log_probs[i] = base_dist_list[i].log_prob(z[i])
+    return torch.exp(base_log_probs - sum(log_jacobians))
 
 
 def save_checkpoint(model: nn.Module, args: Args, path: str) -> None:

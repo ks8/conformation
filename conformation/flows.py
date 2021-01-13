@@ -253,7 +253,7 @@ class NormalizingFlowModel(nn.Module):
 
     def __init__(self, biject: List[RealNVP], base_dist: MultivariateNormal = None, conditional_base: bool = False,
                  input_dim: int = 528, condition_dim: int = 256, base_hidden_size: int = 1024, base_output_dim: int = 1,
-                 conditional_concat: bool = False, padding: bool = False):
+                 conditional_concat: bool = False, padding: bool = False, covariance_factor: float = 1.0):
         """
         :param biject: List of flow layers.
         :param base_dist: Base distribution, specified for non-conditional flow.
@@ -262,6 +262,7 @@ class NormalizingFlowModel(nn.Module):
         :param condition_dim: Second dimension of the condition matrix of size [input_dim, conditional_dim]
         :param base_hidden_size: Hidden size for the linear layer applied to the condition matrix for conditional flows.
         :param padding: Whether or not padding is to be used.
+        :param covariance_factor: Multiplicative factor for the base distribution covariance matrix
         """
         super(NormalizingFlowModel, self).__init__()
         self.biject = biject
@@ -271,6 +272,7 @@ class NormalizingFlowModel(nn.Module):
         self.conditional_base = conditional_base
         self.conditional_concat = conditional_concat
         self.input_dim = input_dim
+        self.covariance_factor = covariance_factor
         if self.conditional_base:
             self.condition_dim = condition_dim
             self.base_hidden_size = base_hidden_size
@@ -319,7 +321,7 @@ class NormalizingFlowModel(nn.Module):
         if condition is not None:
             if self.conditional_concat:
                 base_dist = self.base_dist
-            else:
+            if self.conditional_base:
                 if self.padding:
                     padding = torch.zeros([self.input_dim, self.condition_dim], device=device)
                     padding[0:condition.shape[0], :] = condition
@@ -329,13 +331,14 @@ class NormalizingFlowModel(nn.Module):
                 if len(u.shape) == 2:
                     u = u.squeeze(1)
 
-                base_dist = MultivariateNormal(u, torch.eye(u.shape[0], device=device))
+                base_dist = MultivariateNormal(u, self.covariance_factor*torch.eye(u.shape[0], device=device))
 
         else:
             base_dist = self.base_dist
 
         samples = []
         for _ in tqdm(range(num_samples)):
+            # noinspection PyUnboundLocalVariable
             x = base_dist.sample()
             x = x.unsqueeze(0)
             if self.conditional_concat:

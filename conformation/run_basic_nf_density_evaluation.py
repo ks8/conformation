@@ -7,7 +7,7 @@ from tap import Tap
 import torch
 from tqdm import tqdm
 
-from conformation.utils import load_checkpoint, param_count, density_func
+from conformation.utils import load_checkpoint, param_count, density_func, density_func_cnf
 
 
 class Args(Tap):
@@ -62,16 +62,15 @@ def run_basic_nf_density_evaluation(args: Args) -> None:
                 densities = []
                 for i in tqdm(range(len(evaluation_points))):
                     if model.conditional_base:
-                        print("Coming soon...")
-                        # z, log_jacobians, means = model(batch[0], batch[1])
-                        # density = loss_func_cnf(z, log_jacobians, means, args.cuda)
+                        z, log_jacobians, means = model(evaluation_points[i].unsqueeze(0), condition.unsqueeze(0))
+                        density = density_func_cnf(z, log_jacobians, means, args.cuda).item()
                     elif model.conditional_concat:
                         z, log_jacobians = model(evaluation_points[i].unsqueeze(0), condition.unsqueeze(0))
                         density = density_func(z, log_jacobians, model.base_dist).item()
-                        densities.append(density)
-            # else:
-            #     z, log_jacobians = model(batch)
-            #     loss = loss_func(z, log_jacobians, model.base_dist)
+                    else:
+                        z, log_jacobians = model(evaluation_points[i].unsqueeze(0))
+                        density = density_func(z, log_jacobians, model.base_dist).item()
+                    densities.append(density)
             densities = np.array(densities)
             np.save(os.path.join(args.save_dir, "densities.npy"), densities)
 

@@ -62,7 +62,7 @@ def build_model(args: Args) -> NormalizingFlowModel:
         base_dist = None  # Base distribution will be specified inside the model
     else:
         base_dist = MultivariateNormal(torch.zeros(args.input_dim, device=device),
-                                       torch.eye(args.input_dim, device=device))
+                                       args.covariance_factor*torch.eye(args.input_dim, device=device))
 
     biject = []
     for i in range(args.num_layers):
@@ -84,7 +84,8 @@ def build_model(args: Args) -> NormalizingFlowModel:
                               mask))
 
     return NormalizingFlowModel(biject, base_dist, args.conditional_base, args.input_dim, args.condition_dim,
-                                args.base_hidden_size, args.base_output_dim, args.conditional_concat, args.padding)
+                                args.base_hidden_size, args.base_output_dim, args.conditional_concat, args.padding,
+                                args.covariance_factor)
 
 
 def build_gnf_model(args: TrainArgsRelational) -> GNFFlowModel:

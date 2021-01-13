@@ -52,7 +52,7 @@ def train(model: NormalizingFlowModel, optimizer: Adam, data: DataLoader, args: 
         model.zero_grad()
         if args.conditional_base:
             z, log_jacobians, means = model(batch[0], batch[1])
-            loss = loss_func_cnf(z, log_jacobians, means, args.cuda)
+            loss = loss_func_cnf(z, log_jacobians, means, args.cuda, args.covariance_factor)
         elif args.conditional_concat:
             z, log_jacobians = model(batch[0], batch[1])
             loss = loss_func(z, log_jacobians, model.base_dist)
@@ -83,7 +83,6 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     :param logger: Logging.
     :return: None.
     """
-    assert(not args.conditional_concat or not args.conditional_base)
     assert(args.num_internal_layers > 1)
 
     os.makedirs(os.path.join(args.save_dir, "checkpoints"))

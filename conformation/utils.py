@@ -53,14 +53,19 @@ def loss_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: tor
     else:
         device = torch.device('cpu')
 
-    base_dist_list = []
-    for i in range(len(means)):
-        base_dist_list.append(MultivariateNormal(means[i],
-                                                 covariance_factor * torch.eye(means[i].shape[0], device=device)))
+    base_log_probs = torch.zeros(len(means), device=device)
+    if covariance_factor == 1.0:
+        for i in range(len(means)):
+            base_log_probs[i] = MultivariateNormal(means[i],
+                                                   scale_tril=torch.eye(means[i].shape[0], device=device)).\
+                log_prob(z[i])
+    else:
+        for i in range(len(means)):
+            base_log_probs[i] = MultivariateNormal(means[i],
+                                                   covariance_matrix=covariance_factor * torch.eye(means[i].shape[0],
+                                                                                                   device=device)).\
+                log_prob(z[i])
 
-    base_log_probs = torch.zeros(len(z), device=device)
-    for i in range(len(z)):
-        base_log_probs[i] = base_dist_list[i].log_prob(z[i])
     return -(base_log_probs - sum(log_jacobians)).mean()
 
 
@@ -82,14 +87,19 @@ def density_func_cnf(z: torch.Tensor, log_jacobians: List[torch.Tensor], means: 
     else:
         device = torch.device('cpu')
 
-    base_dist_list = []
-    for i in range(len(means)):
-        base_dist_list.append(MultivariateNormal(means[i],
-                                                 covariance_factor * torch.eye(means[i].shape[0], device=device)))
+    base_log_probs = torch.zeros(len(means), device=device)
+    if covariance_factor == 1.0:
+        for i in range(len(means)):
+            base_log_probs[i] = MultivariateNormal(means[i],
+                                                   scale_tril=torch.eye(means[i].shape[0], device=device)).\
+                log_prob(z[i])
+    else:
+        for i in range(len(means)):
+            base_log_probs[i] = MultivariateNormal(means[i],
+                                                   covariance_matrix=covariance_factor * torch.eye(means[i].shape[0],
+                                                                                                   device=device)).\
+                log_prob(z[i])
 
-    base_log_probs = torch.zeros(len(z), device=device)
-    for i in range(len(z)):
-        base_log_probs[i] = base_dist_list[i].log_prob(z[i])
     return torch.exp(base_log_probs - sum(log_jacobians))
 
 

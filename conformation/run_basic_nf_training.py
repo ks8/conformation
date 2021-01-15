@@ -103,7 +103,7 @@ def run_basic_nf_training(args: Args, logger: Logger) -> None:
     debug('train size = {:,}'.format(train_data_length))
 
     # Convert to iterators
-    train_data = DataLoader(train_data, args.batch_size, shuffle=True)
+    train_data = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_data_loader_workers)
 
     # Load/build model
     if args.checkpoint_path is not None:

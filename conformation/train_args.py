@@ -31,8 +31,10 @@ class Args(Tap):
     num_internal_layers: int = 3  # Number of linear layers for the neural networks that comprise each flow layer
     base_hidden_size: int = 1024  # Hidden size for feedforward network that produces the mean vector for the base
     # distribution (conditional_base = True)
-    log_frequency: int = 10  # Log frequency
+    log_frequency: int = 100  # Log frequency
     cuda: bool = False  # Cuda availability (this is set automatically)
     padding: bool = False  # Whether or not padding will be used (conditional_base = True).
     s_output_activation: Literal["tanh", "lrelu"] = "tanh"  # Which output activation function to use for the "s"
     # RealNVP neural network output activation. Default is nn.tanh, other option is nn.LeakyReLU.
+    num_data_loader_workers: int = 2  # Number of workers for PyTorch DataLoader (0 is just the main process, > 0
+    # specifies the number of subprocesses).

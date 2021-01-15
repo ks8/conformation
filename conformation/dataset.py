@@ -37,12 +37,10 @@ class BasicDataset(Dataset):
         return len(self.metadata)
 
     def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        data = torch.from_numpy(np.load(self.metadata[idx]['path']))
-        data = data.type(torch.float32)
+        data = torch.load(self.metadata[idx]['path'])
 
         if self.condition:
-            condition = torch.from_numpy(np.load(self.metadata[idx]['condition']))
-            condition = condition.type(torch.float32)
+            condition = torch.load(self.metadata[idx]['condition'])
             return data, condition
         else:
             return data

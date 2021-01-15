@@ -203,7 +203,6 @@ class RealNVP(nn.Module):
         :param c: Condition vector for conditional concat flow.
         :return: Inverse sample (in the direction towards the base distribution).
         """
-        log_det_j = x.new_zeros(x.shape[0])
         constant = x[:, self.constant_mask]
         modified = x[:, self.modified_mask]
         if c is not None:
@@ -221,7 +220,7 @@ class RealNVP(nn.Module):
         else:
             x = torch.cat((constant, modified), 1)
 
-        log_det_j += s.sum(dim=1)
+        log_det_j = s.sum(dim=1)
 
         return x, log_det_j
 

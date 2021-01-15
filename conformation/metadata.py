@@ -385,4 +385,5 @@ def metadata(args: Args) -> None:
     if len(binary_dict) > 0:
         pickle.dump(binary_dict, open(os.path.join(args.save_dir, "binary_dict.p"), "wb"),
                     protocol=pickle.HIGHEST_PROTOCOL)
-    json.dump(data, open(os.path.join(args.save_dir, args.save_dir + ".json"), "w"), indent=4, sort_keys=True)
+    json.dump(data, open(os.path.join(args.save_dir, os.path.basename(args.save_dir) + ".json"), "w"), indent=4,
+              sort_keys=True)

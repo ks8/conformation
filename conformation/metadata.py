@@ -376,7 +376,7 @@ def metadata(args: Args) -> None:
             elif args.gmm:
                 if f[:5] == "gmm_s":
                     path = os.path.join(root, f)
-                    condition_path = os.path.join(root, "gmm_conditions_" + f[12:-4] + ".npy")
+                    condition_path = os.path.join(root, "gmm_conditions_" + f[12:-4] + ".ptx")
                     data.append({'path': path, 'condition': condition_path})
             else:
                 data.append({'path': path})

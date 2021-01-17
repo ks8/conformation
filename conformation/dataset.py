@@ -24,6 +24,26 @@ def to_one_hot(x: int, vals: Union[List, range]) -> List:
     return [x == v for v in vals]
 
 
+class TestDataset(Dataset):
+    """
+    Test.
+    """
+    def __init__(self, data: torch.Tensor, condition: torch.Tensor = None):
+        super(Dataset, self).__init__()
+        self.data = data
+        self.condition = condition
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        sample = self.data[idx]
+        if self.condition is not None:
+            return sample, self.condition
+        else:
+            return sample
+
+
 class BasicDataset(Dataset):
     """
     Dataset class for loading non-molecular data organized as numpy arrays

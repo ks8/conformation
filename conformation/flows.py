@@ -9,6 +9,9 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from conformation.batch import Batch
+# noinspection PyUnresolvedReferences
+from torch.utils.data import DataLoader
+from conformation.dataset import TestDataset
 from conformation.relational import RelationalNetwork
 
 
@@ -304,12 +307,16 @@ class NormalizingFlowModel(nn.Module):
         else:
             return x, self.log_det
 
-    def sample(self, num_samples: int = 1000, cuda: bool = False, condition: torch.Tensor = None) -> np.ndarray:
+    def sample(self, num_samples: int = 1000, cuda: bool = False, condition: torch.Tensor = None,
+               batch_size: int = 28, num_data_loader_workers: int = 2) -> np.ndarray:
         """
         Produce samples by processing a sample from the base distribution through the normalizing flow.
         :param num_samples: Number of samples to generate.
         :param cuda: Whether or not to use GPU.
         :param condition: Path to condition numpy file.
+        :param batch_size: Batch size for loading base distribution samples.
+        :param num_data_loader_workers: Number of workers for PyTorch DataLoader (0 is just the main process, > 0
+        specifies the number of subprocesses).
         :return: Sample from the approximate target distribution.
         """
         if cuda:
@@ -335,20 +342,41 @@ class NormalizingFlowModel(nn.Module):
         else:
             base_dist = self.base_dist
 
-        samples = []
-        for _ in tqdm(range(num_samples)):
-            # noinspection PyUnboundLocalVariable
-            x = base_dist.sample()
-            x = x.unsqueeze(0)
+        samples = None
+        # noinspection PyUnboundLocalVariable
+        data = base_dist.sample(torch.Size([num_samples]))
+        if cuda:
+            data = data.cpu()
+
+        if condition is not None:
+            data = TestDataset(data, condition.cpu())
+        else:
+            data = TestDataset(data)
+
+        data = DataLoader(data, batch_size=batch_size, num_workers=num_data_loader_workers)
+        for batch in tqdm(data, total=len(data)):
+            if cuda:
+                # noinspection PyUnresolvedReferences
+                if condition is not None:
+                    batch = (batch[0].cuda(), batch[1].cuda())
+                else:
+                    batch = batch.cuda()
             if self.conditional_concat:
+                x = batch[0]
                 for b in range(len(self.bijectors)):
                     # noinspection PyUnboundLocalVariable
-                    x = self.bijectors[b](x, condition.unsqueeze(0))  # Process a sample through the flow
+                    x = self.bijectors[b](x, batch[1])  # Process a sample through the flow
             else:
+                if self.conditional_base:
+                    x = batch[0]
+                else:
+                    x = batch
                 for b in range(len(self.bijectors)):
                     x = self.bijectors[b](x)  # Process a sample through the flow
-            samples.append(x.cpu().numpy())
-        samples = np.array(samples)
+            if samples is None:
+                samples = x.cpu().numpy()
+            else:
+                samples = np.concatenate([samples, x.cpu().numpy()])
         return samples
 
     def forward_pass_with_log_abs_det_jacobian(self, x: torch.Tensor, condition: torch.Tensor = None) -> \

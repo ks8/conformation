@@ -16,9 +16,10 @@ class Args(Tap):
     """
     System arguments.
     """
-    smiles: str  # Molecular SMILES string
+    bin_path: str  # Path to RDKit binary file containing molecule
     save_dir: str  # Directory for saving conformations
     num_configs: int = 10000  # Number of conformations to generate
+    minimize: bool = False  # Whether or not to minimize conformations
     max_iter: int = 200  # Max iter for MMFF optimization
     dihedral: bool = False  # Use when computing dihedral angle values
     dihedral_vals: List[int] = [2, 0, 1, 5]  # Atom IDs for dihedral
@@ -34,10 +35,13 @@ def rdkit_conformers(args: Args) -> None:
     os.makedirs(os.path.join(args.save_dir, "properties"))
     os.makedirs(os.path.join(args.save_dir, "distmat"))
 
-    m = Chem.MolFromSmiles(args.smiles)
-    m2 = Chem.AddHs(m)
+    # noinspection PyUnresolvedReferences
+    m2 = Chem.Mol(open(args.bin_path, "rb").read())
     _ = AllChem.EmbedMultipleConfs(m2, numConfs=args.num_configs, numThreads=0)
-    res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=args.max_iter, numThreads=0)
+    if args.minimize:
+        res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=args.max_iter, numThreads=0)
+    else:
+        res = AllChem.MMFFOptimizeMoleculeConfs(m2, maxIters=0, numThreads=0)
     rms_list = [0.0]
     AllChem.AlignMolConformers(m2, RMSlist=rms_list)
 

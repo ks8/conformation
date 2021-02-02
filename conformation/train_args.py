@@ -38,3 +38,4 @@ class Args(Tap):
     # RealNVP neural network output activation. Default is nn.tanh, other option is nn.LeakyReLU.
     num_data_loader_workers: int = 2  # Number of workers for PyTorch DataLoader (0 is just the main process, > 0
     # specifies the number of subprocesses).
+    internal_batch_norm: bool = False  # Whether or not to apply BatchNorm to "s" and "t" networks.

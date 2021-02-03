@@ -1,12 +1,12 @@
 """ Plot matrix of pairwise distance histograms for two sets of conformations. """
 import itertools
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import seaborn as sns
 
 from rdkit import Chem
-from rdkit.Chem import rdmolops
+from rdkit.Chem import AllChem, rdmolops
 # noinspection PyPackageRequirements
 from tap import Tap
 from tqdm import tqdm
@@ -20,6 +20,9 @@ class Args(Tap):
     """
     conf_path_1: str  # Path to binary mol file containing conformations
     conf_path_2: str  # Path to another binary mol file containing conformations
+    num_bins: int = 50  # Number of histogram bins
+    line_width: float = 0.5  # Plot line width
+    weight_2: bool = False
     save_dir: str  # Path to directory containing output files
 
 
@@ -60,56 +63,41 @@ def compare_pairwise_distance_histograms(args: Args) -> None:
             else:
                 dist2[(j, k)].append(distmat[j][k])
 
+    # Compute energy weights for mol2
+    k_b = 3.297e-24
+    temp = 300.0
+    avogadro = 6.022e23
+    res = AllChem.MMFFOptimizeMoleculeConfs(mol2, maxIters=0, numThreads=0)
+    probabilities = []
+    for i in range(len(res)):
+        energy = res[i][1] * (1000.0 * 4.184 / avogadro)
+        probabilities.append(math.exp(-energy / (k_b * temp * 4.184)))
+    Z = sum(probabilities)
+    for i in range(len(probabilities)):
+        probabilities[i] /= Z
+    probabilities = np.array(probabilities)
+
+    if args.weight_2:
+        weights = probabilities
+    else:
+        weights = None
+
     fig = plt.figure(constrained_layout=False)
-    gs = fig.add_gridspec(14, 14)
-    axes_list = []
-    for i in range(14):
-        for j in range(14):
-            axes_list.append(fig.add_subplot(gs[i, j]))
+    gs = fig.add_gridspec(num_atoms, num_atoms)
 
-    torsion_list = []
-    for i in range(14):
-        for j in range(14):
+    for i in range(num_atoms):
+        for j in range(num_atoms):
             if i != j:
-                if len(rdmolops.GetShortestPath(mol, int(i), int(j))) - 1 == 3:
-                    torsion_list.append(1)
-                else:
-                    torsion_list.append(0)
-            else:
-                torsion_list.append(0)
-
-    for index, ax in enumerate(axes_list):
-        if torsion_list[index] == 0:
-            ax.spines['top'].set_visible(False)
-            ax.spines['bottom'].set_visible(False)
-            ax.spines['left'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-        ax.set(xticks=[], yticks=[])
-
-    index = 0
-    for i in range(14):
-        for j in range(14):
-            if i < j:
-                sns.histplot(dist[(i, j)], ax=axes_list[index], color="blue", stat='density',
-                             bins=np.arange(min(min(dist[(i, j)]), min(dist2[(i, j)])), max(max(dist[(i, j)]),
-                                                                                            max(dist2[i, j])), 0.01),
-                             kde=True)
-
-                sns.histplot(dist2[(i, j)], ax=axes_list[index], color="red", stat='density',
-                             bins=np.arange(min(min(dist[(i, j)]), min(dist2[(i, j)])), max(max(dist[(i, j)]),
-                                                                                            max(dist2[i, j])), 0.01),
-                             kde=True)
-            elif i > j:
-                sns.histplot(dist[(j, i)], ax=axes_list[index], color="blue", stat='density',
-                             bins=np.arange(min(min(dist[(j, i)]), min(dist2[(j, i)])), max(max(dist[(j, i)]),
-                                                                                            max(dist2[j, i])), 0.01),
-                             kde=True)
-
-                sns.histplot(dist2[(j, i)], ax=axes_list[index], color="red", stat='density',
-                             bins=np.arange(min(min(dist[(j, i)]), min(dist2[(j, i)])), max(max(dist[(j, i)]),
-                                                                                            max(dist2[j, i])), 0.01),
-                             kde=True)
-
-            index += 1
+                ax = fig.add_subplot(gs[i, j])
+                ax.hist(dist[(min(i, j), max(i, j))], density=True, histtype='step',
+                        bins=args.num_bins, linewidth=args.line_width)
+                ax.hist(dist2[(min(i, j), max(i, j))], density=True, histtype='step',
+                        bins=args.num_bins, linewidth=args.line_width, weights=weights)
+                if len(rdmolops.GetShortestPath(mol, int(i), int(j))) - 1 != 3:
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['bottom'].set_visible(False)
+                    ax.spines['left'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+                ax.set(xticks=[], yticks=[])
 
     plt.savefig(os.path.join(args.save_dir, "test.png"))

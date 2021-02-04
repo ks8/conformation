@@ -3,6 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
@@ -12,6 +13,8 @@ import seaborn as sns
 from tap import Tap
 from tqdm import tqdm
 
+from conformation.compare_pairwise_distance_histograms import compute_energy_weights
+
 
 class Args(Tap):
     """
@@ -20,6 +23,8 @@ class Args(Tap):
     data_path: str  # Path to RDKit binary file containing conformations
     num_energy_decimals: int = 3  # Number of energy decimals used for computing empirical minimized energy probability
     subsample_frequency: int = 1  # Frequency at which to compute sample information
+    weights: bool = False  # Whether or not to weight histograms by empirical Boltzmann probability
+    temp: float = 300.0  # Temperature for Boltzmann weighting (weights = True)
     save_dir: str  # Path to directory containing output files
 
 
@@ -29,6 +34,11 @@ def analyze_distributions(args: Args) -> None:
     :return: None.
     """
     os.makedirs(args.save_dir, exist_ok=True)
+
+    # Define constants
+    k_b = 3.297e-24  # Boltzmann constant in cal/K
+    temp = args.temp  # Temperature in K
+    avogadro = 6.022e23
 
     print("Loading molecule...")
     # noinspection PyUnresolvedReferences
@@ -83,9 +93,20 @@ def analyze_distributions(args: Args) -> None:
                 angles[j].append(rdMolTransforms.GetDihedralRad(c, atom_indices[j][0], atom_indices[j][1],
                                                                 atom_indices[j][2], atom_indices[j][3]))
 
+    if args.weights:
+        weights = compute_energy_weights(mol, k_b, temp, avogadro)
+
     for i, bond in enumerate(rotatable_bonds):
         fig, ax = plt.subplots()
-        sns.histplot(angles[i], ax=ax, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1))
+        if args.weights:
+            # noinspection PyUnboundLocalVariable
+            df = np.concatenate((np.array(angles[i])[:, np.newaxis], weights[:, np.newaxis]), axis=1)
+            df = pd.DataFrame(df)
+            df = df.rename(columns={0: 'Angle', 1: 'Probability'})
+            sns.histplot(df, x='Angle', ax=ax, bins=len(np.arange(-math.pi - 1., math.pi + 1., 0.1)),
+                         weights='Probability')
+        else:
+            sns.histplot(angles[i], ax=ax, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1))
         ax.set_xlabel("Angle (radians)")
         ax.set_ylabel("Count")
         atom_0 = mol.GetAtomWithIdx(bond[0]).GetSymbol()

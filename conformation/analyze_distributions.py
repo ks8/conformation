@@ -25,6 +25,8 @@ class Args(Tap):
     subsample_frequency: int = 1  # Frequency at which to compute sample information
     weights: bool = False  # Whether or not to weight histograms by empirical Boltzmann probability
     temp: float = 300.0  # Temperature for Boltzmann weighting (weights = True)
+    pairwise_joint_histograms_figsize: int = 10  # Height and width for figsize
+    pairwise_joint_histograms_dpi: int = 200  # dpi for figure
     save_dir: str  # Path to directory containing output files
 
 
@@ -95,6 +97,18 @@ def analyze_distributions(args: Args) -> None:
 
     if args.weights:
         weights = compute_energy_weights(mol, k_b, temp, avogadro)
+    else:
+        weights = None
+
+    print("Computing pairwise joint torsion histograms via Seaborn")
+    df = pd.DataFrame(np.array(angles).transpose())
+    g = sns.PairGrid(df)
+    g.set(ylim=(-math.pi - 1., math.pi + 1.), xlim=(-math.pi - 1., math.pi + 1.))
+    g.map_upper(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.map_lower(sns.kdeplot, fill=True, weights=weights, bw_adjust=0.25)
+    g.map_diag(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.savefig(os.path.join(args.save_dir, "pairwise_joint_histograms_seaborn.png"))
+    plt.close()
 
     for i, bond in enumerate(rotatable_bonds):
         fig, ax = plt.subplots()
@@ -103,7 +117,7 @@ def analyze_distributions(args: Args) -> None:
             df = np.concatenate((np.array(angles[i])[:, np.newaxis], weights[:, np.newaxis]), axis=1)
             df = pd.DataFrame(df)
             df = df.rename(columns={0: 'Angle', 1: 'Probability'})
-            sns.histplot(df, x='Angle', ax=ax, bins=len(np.arange(-math.pi - 1., math.pi + 1., 0.1)),
+            sns.histplot(df, x='Angle', ax=ax, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)),
                          weights='Probability')
         else:
             sns.histplot(angles[i], ax=ax, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1))
@@ -115,6 +129,31 @@ def analyze_distributions(args: Args) -> None:
                                        f'rotatable-bond-{bond[0]}-{bond[1]}-{atom_0}-{atom_1}-distribution.png'))
         plt.clf()
         plt.close()
+
+    fig = plt.figure(constrained_layout=False, dpi=args.pairwise_joint_histograms_dpi,
+                     figsize=[args.pairwise_joint_histograms_figsize, args.pairwise_joint_histograms_figsize])
+    gs = fig.add_gridspec(len(rotatable_bonds), len(rotatable_bonds))
+    for i, bond_i in enumerate(rotatable_bonds):
+        for j, bond_j in enumerate(rotatable_bonds):
+            ax = fig.add_subplot(gs[i, j])
+            ax.hist2d(angles[j], angles[i], density=True, bins=np.arange(-math.pi - 1., math.pi + 1., 0.1),
+                      cmap='viridis', weights=weights)
+            if i == j:
+                ax.spines['top'].set_visible(True)
+                ax.spines['bottom'].set_visible(True)
+                ax.spines['left'].set_visible(True)
+                ax.spines['right'].set_visible(True)
+                ax.spines['top'].set_linewidth(1.0)
+                ax.spines['top'].set_color('red')
+                ax.spines['bottom'].set_linewidth(1.0)
+                ax.spines['bottom'].set_color('red')
+                ax.spines['left'].set_linewidth(1.0)
+                ax.spines['left'].set_color('red')
+                ax.spines['right'].set_linewidth(1.0)
+                ax.spines['right'].set_color('red')
+            ax.set(xticks=[], yticks=[])
+    plt.savefig(os.path.join(args.save_dir, "pairwise_joint_histograms.png"))
+    plt.close()
 
     print("Computing minimized energies...")
     res = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=200, numThreads=0)

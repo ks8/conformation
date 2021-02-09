@@ -7,6 +7,7 @@ import pandas as pd
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
+from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.Lipinski import RotatableBondSmarts
 import seaborn as sns
 # noinspection PyPackageRequirements
@@ -161,3 +162,14 @@ def analyze_distributions(args: Args) -> None:
     ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))
     plt.clf()
     plt.close()
+
+    # Draw molecule with atom id labels
+    d = rdMolDraw2D.MolDraw2DCairo(500, 500)
+    # noinspection PyArgumentList
+    d.drawOptions().addStereoAnnotation = True
+    # noinspection PyArgumentList
+    d.drawOptions().addAtomIndices = True
+    rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
+    with open(os.path.join(args.save_dir, 'molecule.png'), 'wb') as f:
+        # noinspection PyArgumentList
+        f.write(d.GetDrawingText())

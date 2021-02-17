@@ -148,6 +148,44 @@ def analyze_distributions(args: Args) -> None:
     df_ring = pd.DataFrame(np.array(angles).transpose())
     df_ring = df_ring.rename(columns=column_names_aromatic)
 
+    print("Computing angles of non-rotatable, non-aromatic bonds")
+    atom_indices = []
+    column_names_other = dict()
+    other_count = 0
+    for bond in mol.GetBonds():
+        if not bond.GetBeginAtom().GetIsAromatic() or not bond.GetEndAtom().GetIsAromatic():
+            if (bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()) not in rotatable_bonds:
+                if bond.IsInRing():
+                    # Get atom indices for the ith bond
+                    atom_a_idx = bond.GetBeginAtom().GetIdx()
+                    atom_b_idx = bond.GetEndAtom().GetIdx()
+                    atom_a_symbol = bond.GetBeginAtom().GetSymbol()
+                    atom_b_symbol = bond.GetEndAtom().GetSymbol()
+
+                    if len(mol.GetAtomWithIdx(atom_a_idx).GetNeighbors()) > 3 and len(mol.GetAtomWithIdx(atom_b_idx).GetNeighbors()) > 3:
+
+                        # Select a neighbor for each atom in order to form a dihedral
+                        atom_a_neighbors = mol.GetAtomWithIdx(atom_a_idx).GetNeighbors()
+                        atom_a_neighbor_index = [x.GetIdx() for x in atom_a_neighbors if x.GetIdx() != atom_b_idx][0]
+                        atom_b_neighbors = mol.GetAtomWithIdx(atom_b_idx).GetNeighbors()
+                        atom_b_neighbor_index = [x.GetIdx() for x in atom_b_neighbors if x.GetIdx() != atom_a_idx][0]
+
+                        atom_indices.append([atom_a_neighbor_index, atom_a_idx, atom_b_idx, atom_b_neighbor_index])
+
+                        column_names_other[other_count] = f'{atom_a_idx}-{atom_b_idx} | {atom_a_symbol}-{atom_b_symbol}'
+
+                        other_count += 1
+
+    print("Other ring count", other_count)
+    angles = [[] for _ in range(other_count)]
+    for i in tqdm(range(mol.GetNumConformers())):
+        c = mol.GetConformer(i)
+        for j in range(other_count):
+            angles[j].append(rdMolTransforms.GetDihedralRad(c, atom_indices[j][0], atom_indices[j][1],
+                                                            atom_indices[j][2], atom_indices[j][3]))
+    df_other = pd.DataFrame(np.array(angles).transpose())
+    df_other = df_other.rename(columns=column_names_other)
+
     print("Plotting pairwise joint histograms of aromatic ring bond angles")
     g = sns.PairGrid(df_ring)
     g.set(ylim=(-math.pi - 1., math.pi + 1.), xlim=(-math.pi - 1., math.pi + 1.))
@@ -155,6 +193,15 @@ def analyze_distributions(args: Args) -> None:
     g.map_lower(sns.kdeplot, fill=True, weights=weights, bw_adjust=args.joint_hist_bw_adjust)
     g.map_diag(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
     g.savefig(os.path.join(args.save_dir, "aromatic_pairwise_joint_histograms_seaborn.png"))
+    plt.close()
+
+    print("Plotting pairwise joint histograms of other bond angles")
+    g = sns.PairGrid(df_other)
+    g.set(ylim=(-math.pi - 1., math.pi + 1.), xlim=(-math.pi - 1., math.pi + 1.))
+    g.map_upper(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.map_lower(sns.kdeplot, fill=True, weights=weights, bw_adjust=args.joint_hist_bw_adjust)
+    g.map_diag(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.savefig(os.path.join(args.save_dir, "other_pairwise_joint_histograms_seaborn.png"))
     plt.close()
 
     print(f'Rank of rotatable bond angle matrix: {np.linalg.matrix_rank(df.to_numpy(), tol=args.svd_tol)}')
@@ -190,6 +237,17 @@ def analyze_distributions(args: Args) -> None:
                 vmin=-1, vmax=1)
     plt.yticks(va='center')
     plt.savefig(os.path.join(args.save_dir, "aromatic_pairwise_joint_correlations_seaborn.png"),
+                dpi=args.corr_heatmap_dpi)
+    plt.close()
+    sns.set_theme()
+
+    print("Plotting heatmap of other pairwise correlation coefficients")
+    sns.set(font_scale=args.corr_heatmap_font_scale)
+    # noinspection PyUnresolvedReferences
+    sns.heatmap(df_other.corr(), cmap=plt.cm.Blues, annot=True, annot_kws={'size': args.corr_heatmap_annot_size},
+                vmin=-1, vmax=1)
+    plt.yticks(va='center')
+    plt.savefig(os.path.join(args.save_dir, "other_pairwise_joint_correlations_seaborn.png"),
                 dpi=args.corr_heatmap_dpi)
     plt.close()
     sns.set_theme()

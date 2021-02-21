@@ -1,5 +1,6 @@
 """ Plotting of conformation distributions. """
 import math
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -109,12 +110,13 @@ def compute_torsions(mol: rdchem.Mol, bonds: np.ndarray) -> pd.DataFrame:
     return df
 
 
-def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1) -> pd.DataFrame:
+def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1, bw_method: float = 0.1) -> pd.DataFrame:
     """
     Compute the number of modes for distributions of periodic variables, where each distribution
     is contained in column of an input DataFrame.
     :param df: DataFrame whose columns each contain a different distribution.
     :param shift: Amount by which to do incremental circular shifts of the distribution.
+    :param bw_method: Estimator bandwidth (kde.factor).
     :return: DataFrame containing the mode count for each column of the input.
     """
     positions = np.arange(0.0, 2 * math.pi, shift)
@@ -123,7 +125,7 @@ def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1) -> pd.DataFrame
         min_count = float('inf')
         for k in positions:
             count = 0
-            kernel = gaussian_kde((df.iloc[:, i].to_numpy() + math.pi + k) % (2 * math.pi))
+            kernel = gaussian_kde((df.iloc[:, i].to_numpy() + math.pi + k) % (2 * math.pi), bw_method=bw_method)
             Z = kernel(positions)
             diff = np.gradient(Z)
             s_diff = np.sign(diff)
@@ -161,21 +163,53 @@ def compute_entropy(df: pd.DataFrame, bin_width: float = 0.1) -> pd.DataFrame:
     return df
 
 
-def plot_torsion_joint_histogram(df: pd.DataFrame, weights=None, joint_hist_bw_adjust=0.25):
+# noinspection PyUnresolvedReferences
+def plot_torsion_joint_histogram(df: pd.DataFrame, weights: np.ndarray = None, bin_width: float = 0.1,
+                                 joint_hist_bw_adjust: float = 0.25) -> matplotlib.figure.Figure:
     """
-    Plot pairwise joint histogram of all columns in the given DataFrame.
-    :param df: DataFrame.
+    Plot pairwise joint histogram of all torsion distributions in the given DataFrame.
+    :param df: DataFrame of torsion angles for a set of conformations and bonds (# conformations x # bonds).
     :param weights: Histogram weights.
-    :param joint_hist_bw_adjust: bw_adjust value for pairwise joint histogram of torsions plot.
+    :param bin_width: Histogram bin width.
+    :param joint_hist_bw_adjust: bw_adjust value for kernel density estimate in lower triangle of grid.
     :return: Figure.
     """
     g = sns.PairGrid(df)
     g.set(ylim=(-math.pi - 1., math.pi + 1.), xlim=(-math.pi - 1., math.pi + 1.))
-    g.map_upper(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.map_upper(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., bin_width)), weights=weights)
     g.map_lower(sns.kdeplot, fill=True, weights=weights, bw_adjust=joint_hist_bw_adjust)
-    g.map_diag(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., 0.1)), weights=weights)
+    g.map_diag(sns.histplot, bins=list(np.arange(-math.pi - 1., math.pi + 1., bin_width)), weights=weights)
 
-    return g
+    return g.fig
+
+
+# noinspection PyUnresolvedReferences
+def plot_torsion_pairwise_correlation(df: pd.DataFrame, ax=None, corr_heatmap_annot_size: float = 6.0) -> \
+        matplotlib.axes.Axes:
+    """
+    Plot pairwise correlations of all torsions distributions in the given DataFrame.
+    :param df: DataFrame of torsion angles for a set of conformations and bonds (# conformations x # bonds).
+    :param ax: matplotlib Axes.
+    :param corr_heatmap_annot_size: Font size for annotations in pairwise torsion correlations heatmap
+    :return: matplotlib Axes.
+    """
+    # noinspection PyUnresolvedReferences
+    ax = sns.heatmap(df.corr(), cmap=plt.cm.seismic, annot=True, annot_kws={'size': corr_heatmap_annot_size},
+                     vmin=-1, vmax=1, ax=ax)
+    plt.yticks(va='center')
+    return ax
+
+
+# noinspection PyUnresolvedReferences
+def plot_energy_histogram(df: pd.DataFrame, ax=None, hist_bin_width: float = 0.1) -> matplotlib.axes.Axes:
+    """
+    Plot energy histogram.
+    :param df: DataFrame containing energies of each conformation (# conformations x 1)
+    :param ax: Axes object.
+    :param hist_bin_width: Bin width for histogram.
+    :return: Axes object.
+    """
+    return sns.histplot(df, bins=np.arange(min(df.iloc[:, 0]) - 1., max(df.iloc[:, 0]) + 1., hist_bin_width), ax=ax)
 
 
 def analyze_distributions(args: Args) -> None:
@@ -197,15 +231,15 @@ def analyze_distributions(args: Args) -> None:
     print("Computing energies")
     df = compute_energy(mol)
     sns.set_theme()
-    sns.histplot(df, bins=np.arange(min(df.iloc[:, 0]) - 1., max(df.iloc[:, 0]) + 1., args.hist_bin_width))
-    plt.savefig(os.path.join(args.save_dir, "energy-histogram.png"))
+    ax = plot_energy_histogram(df)
+    ax.figure.savefig(os.path.join(args.save_dir, "energy-histogram.png"))
     plt.close()
 
     print("Computing minimized energies")
     df = compute_energy(mol, minimize=True)
     sns.set_theme()
-    sns.histplot(df, bins=np.arange(min(df.iloc[:, 0]) - 1., max(df.iloc[:, 0]) + 1., args.hist_bin_width))
-    plt.savefig(os.path.join(args.save_dir, "minimized-energy-histogram.png"))
+    ax = plot_energy_histogram(df)
+    ax.figure.savefig(os.path.join(args.save_dir, "minimized-energy-histogram.png"))
     plt.close()
 
     if args.weights:
@@ -279,12 +313,9 @@ def analyze_distributions(args: Args) -> None:
 
             print("Plotting heatmap of pairwise correlation coefficients")
             sns.set(font_scale=args.corr_heatmap_font_scale)
-            # noinspection PyUnresolvedReferences
-            sns.heatmap(df.corr(), cmap=plt.cm.Blues, annot=True, annot_kws={'size': args.corr_heatmap_annot_size},
-                        vmin=-1, vmax=1)
-            plt.yticks(va='center')
-            plt.savefig(os.path.join(args.save_dir, f'{label}_joint_correlations_seaborn.png'),
-                        dpi=args.corr_heatmap_dpi)
+            ax = plot_torsion_pairwise_correlation(df)
+            ax.figure.savefig(os.path.join(args.save_dir, f'{label}_joint_correlations_seaborn.png'),
+                              dpi=args.corr_heatmap_dpi)
             plt.close()
             sns.set_theme()
 
@@ -360,9 +391,10 @@ def analyze_distributions(args: Args) -> None:
     plt.close()
 
     print("Drawing molecule with atom id labels")
+    # noinspection PyUnresolvedReferences
+    mol = Chem.Mol(mol)
+    mol.RemoveAllConformers()
     d = rdMolDraw2D.MolDraw2DCairo(500, 500)
-    # noinspection PyArgumentList
-    d.drawOptions().addStereoAnnotation = True
     # noinspection PyArgumentList
     d.drawOptions().addAtomIndices = True
     rdMolDraw2D.PrepareAndDrawMolecule(d, mol)

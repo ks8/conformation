@@ -1,4 +1,6 @@
 """ Plotting of conformation distributions. """
+import copy
+import itertools
 import math
 import matplotlib
 import matplotlib.pyplot as plt
@@ -6,9 +8,13 @@ import numpy as np
 import os
 import pandas as pd
 from scipy.stats import entropy, gaussian_kde
+from scipy.spatial import distance_matrix
+from typing import Dict, List, Union
+from typing_extensions import Literal
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolTransforms, rdchem
+from rdkit.Chem import AllChem, rdMolTransforms, rdchem, rdmolops
+from rdkit.Chem.rdDistGeom import GetMoleculeBoundsMatrix
 from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.Lipinski import RotatableBondSmarts
 import seaborn as sns
@@ -110,14 +116,52 @@ def compute_torsions(mol: rdchem.Mol, bonds: np.ndarray) -> pd.DataFrame:
     return df
 
 
-def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1, bw_method: float = 0.1) -> pd.DataFrame:
+# noinspection PyUnresolvedReferences
+def compute_distances(mol: rdchem.Mol) -> pd.DataFrame:
     """
-    Compute the number of modes for distributions of periodic variables, where each distribution
-    is contained in column of an input DataFrame.
-    :param df: DataFrame whose columns each contain a different distribution.
-    :param shift: Amount by which to do incremental circular shifts of the distribution.
+    Compute atomic pairwise distances.
+    :param mol: RDKit mol object containing conformations.
+    :return: DataFrame.
+    """
+    num_atoms = mol.GetNumAtoms()
+    distances = []
+    column_names = dict()
+    results = None
+    for i in range(mol.GetNumConformers()):
+        pos = mol.GetConformer(i).GetPositions()
+        dist_mat = distance_matrix(pos, pos)
+        tmp = []
+        for j, k in itertools.combinations(np.arange(num_atoms), 2):
+            tmp.append(dist_mat[j][k])
+        distances.append(tmp)
+    distances = np.array(distances).transpose()
+
+    for i, pair in enumerate(itertools.combinations(np.arange(num_atoms), 2)):
+        j, k = pair
+        if results is None:
+            results = distances[i][:, np.newaxis]
+        else:
+            results = np.concatenate((results, distances[i][:, np.newaxis]), axis=1)
+        column_names[i] = f'Distance {j}-{k} (A)'
+
+    df = pd.DataFrame(results)
+    df = df.rename(columns=column_names)
+
+    return df
+
+
+def compute_num_torsion_modes(df: pd.DataFrame, shift: float = 0.1, bw_method: float = 0.1) -> pd.DataFrame:
+    """
+    Compute the number of torsion modes for a set of torsion distributions. The rows of the input DataFrame
+    correspond to conformations, and the columns correspond to bonds in the molecule. A distribution of torsion
+    angles for each column is calculated via a kernel density estimate, and the number of modes for a given estimate is
+    computed using a numerical first derivative of the estimate. Each distribution is shifted by a fixed amount
+    from 0 to 2\pi, the minimum mode count amongst all of these windows is recorded.
+    :param df: DataFrame containing torsion angles (# confs x # bonds).
+    :param shift: Amount (radians) by which to do incremental modular shifts of the distribution.
     :param bw_method: Estimator bandwidth (kde.factor).
-    :return: DataFrame containing the mode count for each column of the input.
+    :return: DataFrame containing the mode count for each column of the input. Column 0 of this dataframe contains
+    the bond name (corresponding to input DataFrame column name), and column 1 contains the mode count.
     """
     positions = np.arange(0.0, 2 * math.pi, shift)
     mode_counts = []
@@ -125,16 +169,27 @@ def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1, bw_method: floa
         min_count = float('inf')
         for k in positions:
             count = 0
+
+            # Compute the kernel estimate
             kernel = gaussian_kde((df.iloc[:, i].to_numpy() + math.pi + k) % (2 * math.pi), bw_method=bw_method)
+
+            # Compute the kernel value at points between 0 and 2\pi
             Z = kernel(positions)
+
+            # Compute the first derivative and its sign
             diff = np.gradient(Z)
             s_diff = np.sign(diff)
+
+            # Locate zero crossings and check where the crossing corresponds to a local maximum of the kernel estimate
             zc = np.where(s_diff[:-1] != s_diff[1:])[0]
             for j in zc:
                 if s_diff[:-1][j] == 1.0 and s_diff[1:][j] == -1.0:
                     count += 1
+
+            # Record the smallest mode counts
             if count < min_count:
                 min_count = count
+
         mode_counts.append([df.columns[i], min_count])
 
     df = pd.DataFrame(mode_counts)
@@ -143,18 +198,19 @@ def compute_periodic_modes(df: pd.DataFrame, shift: float = 0.1, bw_method: floa
     return df
 
 
-def compute_entropy(df: pd.DataFrame, bin_width: float = 0.1) -> pd.DataFrame:
+def compute_torsion_entropy(df: pd.DataFrame, bin_width: float = 0.1, zero_level: float = 1e-10) -> pd.DataFrame:
     """
-    Compute entropy of the distribution in each column of a DataFrame via discrete histogram.
-    :param df: DataFrame.
-    :param bin_width: Histogram bin width.
-    :return: DataFrame.
+    Compute entropy of the torsion angles in each column of a DataFrame via a histogram.
+    :param df: DataFrame containing torsion angles (# confs x # bonds).
+    :param bin_width: Histogram bin width for the histogram used to compute entropy.
+    :param zero_level: Replace 0 values in the histogram with this number to avoid computing log of 0 in entropy.
+    :return: DataFrame containing the entropy for each column of the input. Column 0 of this dataframe contains
+    the bond name (corresponding to input DataFrame column name), and column 1 contains the entropy.
     """
     entropies = []
     for i in range(df.shape[1]):
-        hist = np.histogram(df.iloc[:, i].to_numpy(), bins=np.arange(-math.pi - 1., math.pi + 1., bin_width),
-                            density=True)[0]
-        hist = np.where(hist == 0, 1e-10, hist)
+        hist = np.histogram(df.iloc[:, i].to_numpy(), bins=np.arange(-math.pi, math.pi, bin_width), density=True)[0]
+        hist = np.where(hist == 0, zero_level, hist)
         entropies.append([df.columns[i], entropy(hist)])
 
     df = pd.DataFrame(entropies)
@@ -210,6 +266,98 @@ def plot_energy_histogram(df: pd.DataFrame, ax=None, hist_bin_width: float = 0.1
     :return: Axes object.
     """
     return sns.histplot(df, bins=np.arange(min(df.iloc[:, 0]) - 1., max(df.iloc[:, 0]) + 1., hist_bin_width), ax=ax)
+
+
+# noinspection PyUnresolvedReferences
+def plot_pairwise_distance_histograms(data_frames: Dict[str, List[Union[pd.DataFrame, np.ndarray]]], mol: rdchem.Mol,
+                                      dpi: int = 200, fig_size: int = 10, bins: int = 50, line_width: float = 0.5,
+                                      path_len: Literal[None, 1, 2, 3, 4] = None, z_score: bool = False,
+                                      y_lim: float = None, plot_bounds: bool = False) -> matplotlib.figure.Figure:
+    """
+    Grid plot of atomic pairwise distance histograms for a molecule.
+    :param data_frames: List of dictionaries whose keys are labels and values are a list, where the first element is
+    an atomic distance DataFrame with shape (# confs x # pairs atoms), and the second is a weight array of Boltzmann
+    weights for each conformation (which may be None).
+    :param mol: RDKit mol object.
+    :param dpi: Dots per inch for fig.
+    :param fig_size: figsize parameter.
+    :param bins: # histogram bins.
+    :param line_width: linewidth parameter.
+    :param path_len: Pairs with this value of shortest path length will be highlighted. 4 means any > 3.
+    :param z_score: Whether or not to z-score each torsion distribution. Z-scoring is based on the first provided
+    DataFrame.
+    :param y_lim: y lim for each individual plot in the grid.
+    :param plot_bounds: Whether or not to add RDKit bounds to plots as vertical lines.
+    :return: Matplotlib figure.
+    """
+    if z_score:
+        data_frames = copy.deepcopy(data_frames)
+        for i, item in enumerate(data_frames):
+            if i == 0:
+                mu = []
+                std = []
+                for j in range(data_frames[item][0].shape[1]):
+                    mu.append(np.mean(data_frames[item][0].iloc[:, j].to_numpy()))
+                    std.append(np.std(data_frames[item][0].iloc[:, j].to_numpy()))
+            for j in range(data_frames[item][0].shape[1]):
+                # noinspection PyUnboundLocalVariable
+                data_frames[item][0].iloc[:, j] -= mu[j]
+                # noinspection PyUnboundLocalVariable
+                data_frames[item][0].iloc[:, j] /= std[j]
+
+    bounds = GetMoleculeBoundsMatrix(mol)
+
+    num_atoms = mol.GetNumAtoms()
+    fig = plt.figure(constrained_layout=False, dpi=dpi, figsize=[fig_size, fig_size])
+    gs = fig.add_gridspec(num_atoms, num_atoms)
+
+    for count, item in enumerate(itertools.combinations(np.arange(num_atoms), 2)):
+        i, j = item
+        for k in range(2):
+            if k == 1:
+                tmp = j
+                j = i
+                i = tmp
+            ax = fig.add_subplot(gs[i, j])
+            for val in data_frames.values():
+                df, weights = val[0], val[1]
+                data = df.iloc[:, count]
+                ax.hist(data, density=True, histtype='step', bins=bins, linewidth=line_width, weights=weights)
+            if y_lim is not None:
+                ax.set_ylim((0., y_lim))
+            ax.set(xticks=[], yticks=[])
+            if plot_bounds:
+                plt.axvline(bounds[i][j], color='r', linewidth=line_width)
+                plt.axvline(bounds[j][i], color='r', linewidth=line_width)
+            if path_len is None:
+                ax.spines['top'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+            elif path_len in [1, 2, 3]:
+                if len(rdmolops.GetShortestPath(mol, int(i), int(j))) - 1 != path_len:
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['bottom'].set_visible(False)
+                    ax.spines['left'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+            else:
+                if len(rdmolops.GetShortestPath(mol, int(i), int(j))) - 1 < path_len:
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['bottom'].set_visible(False)
+                    ax.spines['left'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+
+    ax = fig.add_subplot(gs[0, 0])
+    for label in data_frames.keys():
+        ax.plot([], label=label)
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set(xticks=[], yticks=[])
+    ax.legend()
+
+    return fig
 
 
 def analyze_distributions(args: Args) -> None:
@@ -289,7 +437,7 @@ def analyze_distributions(args: Args) -> None:
         label = distributions[i][1]
         if not df.empty:
             print("Approximating number of modes")
-            df_modes = compute_periodic_modes(df)
+            df_modes = compute_num_torsion_modes(df)
             sns.set(font_scale=args.mode_count_font_scale)
             sns.barplot(y="Bond", x="Mode Count", data=df_modes, color="steelblue")
             plt.savefig(os.path.join(args.save_dir, f'{label}_mode_count.png'), dpi=args.mode_count_dpi)
@@ -299,7 +447,7 @@ def analyze_distributions(args: Args) -> None:
             print(f'Rank of {label} angle matrix: {np.linalg.matrix_rank(df.to_numpy(), tol=args.svd_tol)}')
 
             print("Computing entropy distributions")
-            df_entropies = compute_entropy(df)
+            df_entropies = compute_torsion_entropy(df)
             sns.set(font_scale=args.mode_count_font_scale)
             sns.barplot(y="Bond", x="Entropy", data=df_entropies, color="steelblue")
             plt.savefig(os.path.join(args.save_dir, f'{label}_entropy.png'), dpi=args.mode_count_dpi)
@@ -327,9 +475,9 @@ def analyze_distributions(args: Args) -> None:
         label = distributions[i][1]
         if not df.empty:
             if results is None:
-                results = pd.DataFrame(compute_entropy(df).iloc[:, 1].to_numpy())
+                results = pd.DataFrame(compute_torsion_entropy(df).iloc[:, 1].to_numpy())
             else:
-                results = pd.concat([results, pd.DataFrame(compute_periodic_modes(df).iloc[:, 1].to_numpy())],
+                results = pd.concat([results, pd.DataFrame(compute_num_torsion_modes(df).iloc[:, 1].to_numpy())],
                                     axis=1, ignore_index=True)
             column_names[num_cols] = label
             num_cols += 1
@@ -346,9 +494,9 @@ def analyze_distributions(args: Args) -> None:
         label = distributions[i][1]
         if not df.empty:
             if results is None:
-                results = pd.DataFrame(compute_periodic_modes(df).iloc[:, 1].to_numpy())
+                results = pd.DataFrame(compute_num_torsion_modes(df).iloc[:, 1].to_numpy())
             else:
-                results = pd.concat([results, pd.DataFrame(compute_periodic_modes(df).iloc[:, 1].to_numpy())],
+                results = pd.concat([results, pd.DataFrame(compute_num_torsion_modes(df).iloc[:, 1].to_numpy())],
                                     axis=1, ignore_index=True)
             column_names[num_cols] = label
             num_cols += 1
@@ -358,7 +506,7 @@ def analyze_distributions(args: Args) -> None:
     plt.close()
 
     print("Computing minimized energies")
-    res = AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
+    res = AllChem.MMFFOptimizeMoleculeConfs(copy.deepcopy(mol), numThreads=0)
     energies = []
     for i in range(len(res)):
         energies.append(res[i][1])
@@ -388,6 +536,22 @@ def analyze_distributions(args: Args) -> None:
     ax.set_ylabel("Energy Probability")
     ax.figure.savefig(os.path.join(args.save_dir, "probabilities-vs-energies.png"))
     plt.clf()
+    plt.close()
+
+    # Test pairwise distance
+    df = compute_distances(mol)
+    # noinspection PyUnresolvedReferences
+    mol2 = Chem.Mol(mol)
+    AllChem.EmbedMultipleConfs(mol2, numConfs=1000)
+    df2 = compute_distances(mol2)
+
+    weights = compute_energy_weights(mol2, k_b, temp, avogadro)
+    dataframes = {"PT": [df, None], "ETKDG": [df2, weights]}
+
+    matplotlib.rc_file_defaults()
+    fig = plot_pairwise_distance_histograms(dataframes, mol, plot_bounds=True)
+
+    fig.savefig(os.path.join(args.save_dir, f'pairwise_distance_matrix_pairs.png'))
     plt.close()
 
     print("Drawing molecule with atom id labels")

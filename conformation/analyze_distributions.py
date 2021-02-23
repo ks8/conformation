@@ -117,6 +117,73 @@ def compute_torsions(mol: rdchem.Mol, bonds: np.ndarray) -> pd.DataFrame:
 
 
 # noinspection PyUnresolvedReferences
+def compute_rotatable_bond_torsions(mol: rdchem.Mol) -> pd.DataFrame:
+    """
+    Compute torsion angles for rotatable bonds.
+    :param mol: RDKit mol object containing conformations.
+    :return: Dataframe.
+    """
+    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
+    df = compute_torsions(mol, np.array(rotatable_bonds))
+
+    return df
+
+
+# noinspection PyUnresolvedReferences
+def compute_aromatic_ring_bond_torsions(mol: rdchem.Mol) -> pd.DataFrame:
+    """
+    Compute torsion angles for aromatic ring bonds.
+    :param mol: RDKit mol object containing conformations.
+    :return: Dataframe.
+    """
+    aromatic_bonds = []
+    for bond in mol.GetBonds():
+        if bond.GetBeginAtom().GetIsAromatic() and bond.GetEndAtom().GetIsAromatic():
+            aromatic_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
+    df = compute_torsions(mol, np.array(aromatic_bonds))
+
+    return df
+
+
+# noinspection PyUnresolvedReferences
+def compute_non_aromatic_ring_bond_torsions(mol: rdchem.Mol) -> pd.DataFrame:
+    """
+    Compute torsion angles for non-aromatic ring bonds.
+    :param mol: RDKit mol object containing conformations.
+    :return: Dataframe.
+    """
+    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
+    non_aromatic_ring_bonds = []
+    for bond in mol.GetBonds():
+        if not bond.GetBeginAtom().GetIsAromatic() or not bond.GetEndAtom().GetIsAromatic():
+            if (bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()) not in rotatable_bonds:
+                if bond.IsInRing():
+                    non_aromatic_ring_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
+    df = compute_torsions(mol, np.array(non_aromatic_ring_bonds))
+
+    return df
+
+
+# noinspection PyUnresolvedReferences
+def compute_non_rotatable_non_ring_bond_torsions(mol: rdchem.Mol) -> pd.DataFrame:
+    """
+    Compute torsion angles for non-rotatable non-ring bonds.
+    :param mol: RDKit mol object containing conformations.
+    :return: Dataframe.
+    """
+    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
+    non_rotatable_non_ring_bonds = []
+    for bond in mol.GetBonds():
+        if (bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()) not in rotatable_bonds:
+            if not bond.IsInRing() and len(bond.GetBeginAtom().GetNeighbors()) > 1 and \
+                    len(bond.GetEndAtom().GetNeighbors()) > 1:
+                non_rotatable_non_ring_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
+    df = compute_torsions(mol, np.array(non_rotatable_non_ring_bonds))
+
+    return df
+
+
+# noinspection PyUnresolvedReferences
 def compute_distances(mol: rdchem.Mol) -> pd.DataFrame:
     """
     Compute atomic pairwise distances.
@@ -220,8 +287,8 @@ def compute_torsion_entropy(df: pd.DataFrame, bin_width: float = 0.1, zero_level
 
 
 # noinspection PyUnresolvedReferences
-def plot_torsion_joint_histogram(df: pd.DataFrame, weights: np.ndarray = None, bin_width: float = 0.1,
-                                 joint_hist_bw_adjust: float = 0.25) -> matplotlib.figure.Figure:
+def plot_torsion_joint_histograms(df: pd.DataFrame, weights: np.ndarray = None, bin_width: float = 0.1,
+                                  joint_hist_bw_adjust: float = 0.25) -> matplotlib.figure.Figure:
     """
     Plot pairwise joint histogram of all torsion distributions in the given DataFrame.
     :param df: DataFrame of torsion angles for a set of conformations and bonds (# conformations x # bonds).
@@ -240,7 +307,7 @@ def plot_torsion_joint_histogram(df: pd.DataFrame, weights: np.ndarray = None, b
 
 
 # noinspection PyUnresolvedReferences
-def plot_torsion_pairwise_correlation(df: pd.DataFrame, ax=None, corr_heatmap_annot_size: float = 6.0) -> \
+def plot_torsion_pairwise_correlations(df: pd.DataFrame, ax=None, corr_heatmap_annot_size: float = 6.0) -> \
         matplotlib.axes.Axes:
     """
     Plot pairwise correlations of all torsions distributions in the given DataFrame.
@@ -346,16 +413,29 @@ def plot_pairwise_distance_histograms(data_frames: Dict[str, List[Union[pd.DataF
                     ax.spines['bottom'].set_visible(False)
                     ax.spines['left'].set_visible(False)
                     ax.spines['right'].set_visible(False)
+            if i == num_atoms - 1:
+                ax.set_xlabel(str(j))
+            if j == 0:
+                ax.set_ylabel(str(i))
 
     ax = fig.add_subplot(gs[0, 0])
     for label in data_frames.keys():
         ax.plot([], label=label)
+    ax.set_ylabel("0")
     ax.spines['top'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.set(xticks=[], yticks=[])
     ax.legend()
+
+    ax = fig.add_subplot(gs[num_atoms - 1, num_atoms - 1])
+    ax.set_xlabel(str(num_atoms - 1))
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set(xticks=[], yticks=[])
 
     return fig
 
@@ -403,33 +483,16 @@ def analyze_distributions(args: Args) -> None:
     distributions = []
 
     print("Computing rotatable bond angles")
-    rotatable_bonds = mol.GetSubstructMatches(RotatableBondSmarts)
-    distributions.append([compute_torsions(mol, np.array(rotatable_bonds)), "rotatable_bond"])
+    distributions.append([compute_rotatable_bond_torsions(mol), "rotatable_bond"])
 
     print("Computing angles of bonds in aromatic rings")
-    aromatic_bonds = []
-    for bond in mol.GetBonds():
-        if bond.GetBeginAtom().GetIsAromatic() and bond.GetEndAtom().GetIsAromatic():
-            aromatic_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
-    distributions.append([compute_torsions(mol, np.array(aromatic_bonds)), "aromatic_bond"])
+    distributions.append([compute_aromatic_ring_bond_torsions(mol), "aromatic_bond"])
 
     print("Computing angles of non-rotatable, non-aromatic ring bonds")
-    non_aromatic_ring_bonds = []
-    for bond in mol.GetBonds():
-        if not bond.GetBeginAtom().GetIsAromatic() or not bond.GetEndAtom().GetIsAromatic():
-            if (bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()) not in rotatable_bonds:
-                if bond.IsInRing():
-                    non_aromatic_ring_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
-    distributions.append([compute_torsions(mol, np.array(non_aromatic_ring_bonds)), "non_aromatic_ring_bond"])
+    distributions.append([compute_non_aromatic_ring_bond_torsions(mol), "non_aromatic_ring_bond"])
 
     print("Computing angles of non-rotatable, non-ring, non-terminal bonds")
-    non_rotatable_non_ring_bonds = []
-    for bond in mol.GetBonds():
-        if (bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()) not in rotatable_bonds:
-            if not bond.IsInRing() and len(bond.GetBeginAtom().GetNeighbors()) > 1 and \
-                    len(bond.GetEndAtom().GetNeighbors()) > 1:
-                non_rotatable_non_ring_bonds.append([bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()])
-    distributions.append([compute_torsions(mol, np.array(non_rotatable_non_ring_bonds)),
+    distributions.append([compute_non_rotatable_non_ring_bond_torsions(mol),
                           "non_rotatable_non_ring_non_terminal_bonds"])
 
     for i in range(len(distributions)):
@@ -455,13 +518,13 @@ def analyze_distributions(args: Args) -> None:
             sns.set_theme()
 
             print("Plotting pairwise joint histograms")
-            g = plot_torsion_joint_histogram(df, weights)
+            g = plot_torsion_joint_histograms(df, weights)
             g.savefig(os.path.join(args.save_dir, f'{label}_joint_histograms_seaborn.png'))
             plt.close()
 
             print("Plotting heatmap of pairwise correlation coefficients")
             sns.set(font_scale=args.corr_heatmap_font_scale)
-            ax = plot_torsion_pairwise_correlation(df)
+            ax = plot_torsion_pairwise_correlations(df)
             ax.figure.savefig(os.path.join(args.save_dir, f'{label}_joint_correlations_seaborn.png'),
                               dpi=args.corr_heatmap_dpi)
             plt.close()
